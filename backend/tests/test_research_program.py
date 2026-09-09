@@ -2657,6 +2657,49 @@ def test_proposed_matrix_never_pairs_datasets_that_declare_overlap() -> None:
                 assert left not in get_cosmology_dataset(right).do_not_combine_with, (cell["label"], left, right)
 
 
+def test_overlap_only_selection_keeps_a_nonempty_matrix() -> None:
+    """Codex review on #81 (round 8): "compare H0 anchors" selects SH0ES,
+    TRGB, H0LiCOW and the megamaser anchor, and the matrix has only the
+    "All selected probes" fallback cell. SH0ES and TRGB declare an overlap,
+    so dropping that cell ran nothing at all — the independent anchors
+    included. The fallback is partitioned into conflict-free legs instead."""
+    from app.services.cosmology_likelihoods import get_cosmology_dataset
+    from app.services.research_program import (
+        _candidate_datasets,
+        _proposed_experiment_matrix,
+        _required_probes,
+        plan_research_program,
+    )
+
+    question = "Compare the H0 anchors: SH0ES, TRGB, H0LiCOW and megamasers under flat LCDM."
+    keys = _candidate_datasets(_required_probes(question), question)
+    assert {"shoes_h0_riess22", "trgb_h0_freedman19", "h0licow_h0", "megamaser_h0_pesce20"} <= set(keys), keys
+    assert "trgb_h0_freedman19" in get_cosmology_dataset("shoes_h0_riess22").do_not_combine_with
+
+    matrix = _proposed_experiment_matrix(keys, ["lcdm"], question)
+    assert len(matrix) == 2, matrix
+    leg_sets = [set(cell["dataset_keys"]) for cell in matrix]
+    # Every requested anchor survives in some leg; the independent anchors
+    # ride on every leg; each leg holds exactly one of the overlapping pair.
+    assert set().union(*leg_sets) == set(keys)
+    for cell in matrix:
+        cell_keys = set(cell["dataset_keys"])
+        assert {"h0licow_h0", "megamaser_h0_pesce20"} <= cell_keys, cell
+        assert len(cell_keys & {"shoes_h0_riess22", "trgb_h0_freedman19"}) == 1, cell
+        assert cell["known_overlap"] == [key for key in keys if key not in cell_keys], cell
+        assert cell["model"] == "lcdm"
+        assert "All selected probes" in cell["label"]
+        ordered = list(cell["dataset_keys"])
+        for i, left in enumerate(ordered):
+            for right in ordered[i + 1:]:
+                assert right not in get_cosmology_dataset(left).do_not_combine_with, (cell["label"], left, right)
+    # The user's path: the plan carries the same non-empty matrix.
+    plan = plan_research_program(question=question)
+    planned = plan["research_plan"]["proposed_experiment_matrix"]
+    assert [set(cell["dataset_keys"]) for cell in planned] == leg_sets, planned
+    assert plan["matrix_size"] == 2, plan["matrix_size"]
+
+
 def test_extended_model_branch_cells_partition_declared_overlaps() -> None:
     """Codex review on #81 (rounds 3-4): the comparison anchor and
     requested-model branch cells run on the dataset union; a union holding a

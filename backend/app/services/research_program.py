@@ -2913,23 +2913,35 @@ def _proposed_experiment_matrix(dataset_keys: list[str], models: list[str], text
     matrix: list[dict[str, Any]] = []
     for label, combo in combos:
         cleaned = _clean_dataset_keys(combo)
-        marker = tuple(cleaned)
-        if not cleaned or marker in seen:
+        if not cleaned:
             continue
         # A cell whose members declare each other in do_not_combine_with
         # (e.g. DESI BAO + the eBOSS fσ8 compilation, which re-observes the
-        # same tracers) would be blocked unconditionally by the runner; the
-        # single-probe legs already cover those datasets separately.
-        if _combo_has_declared_overlap(cleaned):
-            continue
-        seen.add(marker)
-        cell_label = f"ΛCDM baseline — {label}" if extended_models or special_model_gap else label
-        matrix.append({
-            "label": cell_label,
-            "dataset_keys": cleaned,
-            "model": baseline_model,
-            "baseline_only": bool(extended_models or special_model_gap),
-        })
+        # same tracers) would be blocked unconditionally by the runner.  It is
+        # partitioned into conflict-free legs rather than dropped (Codex
+        # review on #81, round 8): an H0-anchor selection whose only cell is
+        # the "All selected probes" fallback must not collapse into an empty
+        # matrix that runs nothing, independent anchors included.  Legs that
+        # duplicate an earlier cell (the single-probe legs already cover a
+        # conflicting two-probe combo) are skipped by the marker check.
+        legs = _conflict_free_partitions(cleaned) if _combo_has_declared_overlap(cleaned) else [cleaned]
+        for leg in legs:
+            marker = tuple(leg)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            leg_label = label if len(legs) == 1 else f"{label} — {' + '.join(leg)}"
+            cell_label = f"ΛCDM baseline — {leg_label}" if extended_models or special_model_gap else leg_label
+            cell: dict[str, Any] = {
+                "label": cell_label,
+                "dataset_keys": list(leg),
+                "model": baseline_model,
+                "baseline_only": bool(extended_models or special_model_gap),
+            }
+            excluded = [key for key in cleaned if key not in leg]
+            if excluded:
+                cell["known_overlap"] = excluded
+            matrix.append(cell)
     if extended_models:
         # Comparison anchor (2026-06-12): extended branch cells run on the FULL
         # dataset union, but baseline combos are subsets — without an lcdm cell

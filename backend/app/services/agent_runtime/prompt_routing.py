@@ -3241,6 +3241,26 @@ def _cosmology_dataset_groups_from_prompt(
     return [keys]
 
 
+def _explicit_joint_request(text: str) -> bool:
+    """True when the prompt asks for the datasets to be run TOGETHER
+    (a joint cue, or a non-negated "combine"/"jointly"/"together").  Such a
+    request must reach the runner as one call so it can reject and explain
+    an invalid overlap (Codex review on #81) instead of being silently
+    rewritten into separate legs."""
+    prompt = str(text or "").lower()
+    if _last_dataset_group_mode(prompt) == "joint":
+        return True
+    for match in re.finditer(r"\b(?:combine|combining|combined|jointly|together)\b", prompt):
+        prefix = prompt[max(0, match.start() - 40): match.start()]
+        if not re.search(
+            r"\b(?:do\s+not|don't|never|must\s+not|should\s+not|shouldn't|"
+            r"cannot|can't|without|instead\s+of)(?:\s+ever)?\s*$",
+            prefix,
+        ):
+            return True
+    return False
+
+
 def _split_declared_overlaps(groups: list[list[str]]) -> list[list[str]]:
     """Split a FORCED-RUN group whose members declare each other in the
     registry's ``do_not_combine_with`` into conflict-free legs (applied to
@@ -3529,7 +3549,12 @@ def _cosmology_likelihood_run_calls_from_prompt(text: str) -> list[dict[str, Any
             }
             for model in run_models
         ]
-    dataset_groups = _split_declared_overlaps(_cosmology_dataset_groups_from_prompt(text, dataset_keys))
+    dataset_groups = _cosmology_dataset_groups_from_prompt(text, dataset_keys)
+    if not _explicit_joint_request(text):
+        # "DESI or pre-DESI" style alternatives become separate legs; an
+        # explicit joint request stays one call so the runner can block it
+        # with an overlapping_dataset_combination reason the user can read.
+        dataset_groups = _split_declared_overlaps(dataset_groups)
     return [
         {
             "id": f"auto_cosmo_run_{uuid.uuid4().hex}",

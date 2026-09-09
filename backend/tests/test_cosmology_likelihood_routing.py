@@ -3290,3 +3290,23 @@ def test_desi_or_pre_desi_bao_runs_as_separate_legs_not_one_blocked_joint() -> N
         ["desi_dr1_bao", "planck2018_compressed"],
     ]
 
+
+def test_explicit_joint_desi_and_pre_desi_request_stays_one_call_for_the_runner_to_block() -> None:
+    """Codex review on #81: a prompt that explicitly asks to COMBINE the two
+    BAO releases must reach the runner as one call (which then blocks with
+    overlapping_dataset_combination) rather than be rewritten into separate
+    legs that would imply the requested joint fit was performed."""
+    from app.api.chat import _cosmology_likelihood_run_calls_from_prompt
+    from app.services.agent_runtime.prompt_routing import _explicit_joint_request
+
+    prompt = (
+        "Combine DESI and pre-DESI BAO in one joint fit under flat LCDM without "
+        "CMB calibration or H0 prior."
+    )
+    assert _explicit_joint_request(prompt) is True
+    legs = [call["input"]["dataset_keys"] for call in _cosmology_likelihood_run_calls_from_prompt(prompt)]
+    assert legs == [["desi_dr1_bao", "sdss_6df_bao"]], legs
+    # Negated combining is not a joint request.
+    assert _explicit_joint_request("Use DESI or pre-DESI BAO; do not combine them.") is False
+    assert _explicit_joint_request("Run DESI and pre-DESI BAO without combining the datasets.") is False
+

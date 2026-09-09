@@ -32,7 +32,7 @@ jobs:
         run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}/science-worker" >> "$GITHUB_OUTPUT"
 
       - id: build
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: backend
           file: backend/Dockerfile.worker
@@ -46,7 +46,7 @@ jobs:
             ${{ steps.image.outputs.name }}:${{ github.ref_name }}
             ${{ steps.image.outputs.name }}:${{ github.sha }}
 
-      - uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       - name: Sign immutable digest with GitHub OIDC
         env:

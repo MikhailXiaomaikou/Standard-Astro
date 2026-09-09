@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import re
 import uuid
@@ -2828,11 +2829,15 @@ def _combo_has_declared_overlap(keys: list[str]) -> bool:
 
 
 def _conflict_free_partitions(keys: list[str]) -> list[list[str]]:
-    """Split ``keys`` into legs that hold no declared ``do_not_combine_with``
-    pair.  Keys that conflict with nothing are shared by every leg; each
-    overlap class contributes one member per leg (greedy, order-preserving),
-    so every requested dataset survives in some leg.  A conflict-free input
-    is returned as a single leg."""
+    """Split ``keys`` into every maximal leg that holds no declared
+    ``do_not_combine_with`` pair.  Keys that conflict with nothing are shared
+    by every leg.  The contested keys form a conflict graph: each connected
+    component contributes its maximal conflict-free subsets, and the legs are
+    the Cartesian product across components, so independent choices (which
+    SN compilation, which H0 anchor) vary independently instead of being
+    paired once by a greedy colouring (Codex review on #81, round 9).  Legs
+    and their members keep the input order; a conflict-free input is
+    returned as a single leg."""
     contested = [
         key for key in keys
         if any(_combo_has_declared_overlap([key, other]) for other in keys if other != key)
@@ -2840,15 +2845,46 @@ def _conflict_free_partitions(keys: list[str]) -> list[list[str]]:
     if not contested:
         return [list(keys)]
     shared = [key for key in keys if key not in contested]
+    conflicts = {
+        key: {other for other in contested if other != key and _combo_has_declared_overlap([key, other])}
+        for key in contested
+    }
+    components: list[list[str]] = []
+    unassigned = list(contested)
+    while unassigned:
+        reached = {unassigned[0]}
+        frontier = [unassigned[0]]
+        while frontier:
+            node = frontier.pop()
+            for neighbour in conflicts[node]:
+                if neighbour not in reached:
+                    reached.add(neighbour)
+                    frontier.append(neighbour)
+        components.append([key for key in contested if key in reached])
+        unassigned = [key for key in unassigned if key not in reached]
+
+    def _maximal_conflict_free_subsets(nodes: list[str]) -> list[list[str]]:
+        found: list[list[str]] = []
+
+        def _extend(index: int, chosen: list[str]) -> None:
+            if index == len(nodes):
+                left_out = [node for node in nodes if node not in chosen]
+                if all(conflicts[node] & set(chosen) for node in left_out):
+                    found.append(list(chosen))
+                return
+            node = nodes[index]
+            if not (conflicts[node] & set(chosen)):
+                _extend(index + 1, chosen + [node])
+            _extend(index + 1, chosen)
+
+        _extend(0, [])
+        return found
+
     legs: list[list[str]] = []
-    for key in contested:
-        for leg in legs:
-            if not _combo_has_declared_overlap(leg + [key]):
-                leg.append(key)
-                break
-        else:
-            legs.append([key])
-    return [[key for key in keys if key in shared or key in leg] for leg in legs]
+    for choice in itertools.product(*(_maximal_conflict_free_subsets(component) for component in components)):
+        picked = {key for subset in choice for key in subset}
+        legs.append([key for key in keys if key in shared or key in picked])
+    return legs
 
 
 def _proposed_experiment_matrix(dataset_keys: list[str], models: list[str], text: str) -> list[dict[str, Any]]:

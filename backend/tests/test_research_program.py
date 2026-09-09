@@ -2700,6 +2700,63 @@ def test_overlap_only_selection_keeps_a_nonempty_matrix() -> None:
     assert plan["matrix_size"] == 2, plan["matrix_size"]
 
 
+def test_conflict_free_partitions_enumerate_every_compatible_choice() -> None:
+    """Codex review on #81 (round 9): with several overlap classes the legs
+    must be the full set of maximal conflict-free choices, not one greedy
+    pairing. Pantheon+, DES-SN5YR and Union3 exclude each other, SH0ES and
+    TRGB exclude each other, and Pantheon+ also excludes SH0ES (it carries
+    the SH0ES calibrators), so exactly five SN x H0 legs are registry-valid."""
+    from app.services.cosmology_likelihoods import get_cosmology_dataset
+    from app.services.research_program import (
+        _combo_has_declared_overlap,
+        _conflict_free_partitions,
+        _proposed_experiment_matrix,
+    )
+
+    keys = [
+        "pantheon_plus", "des_sn5yr", "union3",
+        "shoes_h0_riess22", "trgb_h0_freedman19",
+        "planck2018_compressed",
+    ]
+    legs = _conflict_free_partitions(keys)
+    assert legs == [
+        ["pantheon_plus", "trgb_h0_freedman19", "planck2018_compressed"],
+        ["des_sn5yr", "shoes_h0_riess22", "planck2018_compressed"],
+        ["des_sn5yr", "trgb_h0_freedman19", "planck2018_compressed"],
+        ["union3", "shoes_h0_riess22", "planck2018_compressed"],
+        ["union3", "trgb_h0_freedman19", "planck2018_compressed"],
+    ], legs
+    for leg in legs:
+        # registry-valid ...
+        for i, left in enumerate(leg):
+            for right in leg[i + 1:]:
+                assert right not in get_cosmology_dataset(left).do_not_combine_with, (left, right)
+        # ... and maximal: every key left out conflicts with a member.
+        for key in keys:
+            if key not in leg:
+                assert any(_combo_has_declared_overlap([key, member]) for member in leg), (key, leg)
+    # Independent overlap classes multiply: BAO/RSD x H0 anchors -> four legs.
+    assert _conflict_free_partitions(
+        ["desi_dr1_bao", "eboss_dr16_rsd", "shoes_h0_riess22", "trgb_h0_freedman19"]
+    ) == [
+        ["desi_dr1_bao", "shoes_h0_riess22"],
+        ["desi_dr1_bao", "trgb_h0_freedman19"],
+        ["eboss_dr16_rsd", "shoes_h0_riess22"],
+        ["eboss_dr16_rsd", "trgb_h0_freedman19"],
+    ]
+    # The wCDM matrix carries one matched LCDM anchor and one branch per leg.
+    matrix = _proposed_experiment_matrix(keys, ["lcdm", "wcdm"], "Compare SN compilations and H0 anchors under wCDM")
+    anchors = [cell["dataset_keys"] for cell in matrix if cell.get("comparison_anchor")]
+    branches = [cell["dataset_keys"] for cell in matrix if cell.get("requested_model_branch")]
+    assert anchors == legs, anchors
+    assert branches == legs, branches
+    for cell in matrix:
+        cell_keys = list(cell["dataset_keys"])
+        for i, left in enumerate(cell_keys):
+            for right in cell_keys[i + 1:]:
+                assert right not in get_cosmology_dataset(left).do_not_combine_with, (cell["label"], left, right)
+
+
 def test_extended_model_branch_cells_partition_declared_overlaps() -> None:
     """Codex review on #81 (rounds 3-4): the comparison anchor and
     requested-model branch cells run on the dataset union; a union holding a

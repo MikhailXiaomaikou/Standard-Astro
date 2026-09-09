@@ -157,8 +157,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if git fetch origin evidence-log 2>/dev/null; then
-            git worktree add /tmp/evidence-log FETCH_HEAD
-            (cd /tmp/evidence-log && git checkout -B evidence-log FETCH_HEAD)
+            # FETCH_HEAD is per-worktree: only the checkout that ran the fetch
+            # has it, so resolve it to a commit BEFORE the new worktree exists.
+            # Reading FETCH_HEAD inside the worktree failed every scheduled run
+            # from 2026-09-05 to 2026-09-08 ("'FETCH_HEAD' is not a commit").
+            evidence_head="$(git rev-parse --verify FETCH_HEAD)"
+            git worktree add -B evidence-log /tmp/evidence-log "$evidence_head"
           else
             git worktree add --detach /tmp/evidence-log
             (cd /tmp/evidence-log && git checkout --orphan evidence-log && git rm -rf --quiet . || true)

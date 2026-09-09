@@ -51,3 +51,34 @@ def test_daily_run_step_hands_the_profile_to_the_runner_with_the_same_fallback()
 def test_runner_reads_the_profile_from_the_same_variable_with_the_same_default() -> None:
     source = RUNNER.read_text(encoding="utf-8")
     assert 'os.environ.get("BLIND_DEEPSEEK_PROFILE", "deepseek:v4-pro")' in source
+
+
+def _publish_step_script() -> str:
+    for job in _workflow()["jobs"].values():
+        for step in job.get("steps", []):
+            if step.get("name") == "Publish evidence log":
+                return str(step["run"])
+    raise AssertionError("daily.yml lost the 'Publish evidence log' step")
+
+
+def test_publish_step_resolves_fetch_head_before_entering_the_worktree() -> None:
+    """FETCH_HEAD is per-worktree: only the checkout that ran ``git fetch`` has
+    it. Every scheduled run from 2026-09-05 to 2026-09-08 failed with
+    "'FETCH_HEAD' is not a commit" because the step created a fresh worktree
+    and then read FETCH_HEAD inside it. The tip must be resolved to a commit
+    first and the worktree created from that commit."""
+    lines = [
+        line.strip()
+        for line in _publish_step_script().splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    ]
+    worktree_lines = [line for line in lines if "git worktree add" in line]
+    assert worktree_lines, "publish step no longer creates the evidence-log worktree"
+    for line in worktree_lines:
+        assert "FETCH_HEAD" not in line, f"worktree must be created from a resolved commit: {line}"
+    assert not any("checkout" in line and "FETCH_HEAD" in line for line in lines), (
+        "no checkout may reference FETCH_HEAD inside the evidence-log worktree"
+    )
+    assert any("rev-parse" in line and "FETCH_HEAD" in line for line in lines), (
+        "the fetched evidence-log tip must be resolved with rev-parse before the worktree exists"
+    )

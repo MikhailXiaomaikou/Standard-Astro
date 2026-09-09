@@ -3241,6 +3241,66 @@ def _cosmology_dataset_groups_from_prompt(
     return [keys]
 
 
+def _split_declared_overlaps(groups: list[list[str]]) -> list[list[str]]:
+    """Split a FORCED-RUN group whose members declare each other in the
+    registry's ``do_not_combine_with`` into conflict-free legs (applied to
+    run_cosmology_likelihood_chain pre-execution only; build_cosmology_likelihood
+    configs keep their established grouping and surface the overlap warning).
+
+    "DESI or pre-DESI BAO" routes both desi_dr1_bao and sdss_6df_bao; since the
+    2026-09-09 audit those overlap (SDSS MGS sits inside the DESI BGS
+    footprint), so one joint run would be blocked unconditionally. Keys that
+    conflict with nothing (e.g. the compressed CMB prior) are shared by every
+    leg; conflicting keys are distributed greedily so no leg holds a declared
+    pair. Groups without a declared pair are returned unchanged.
+    """
+    from app.services.cosmology_likelihoods import get_cosmology_dataset
+
+    def _entry(key: str):
+        try:
+            return get_cosmology_dataset(key)
+        except Exception:
+            return None
+
+    def _conflict(a: str, b: str) -> bool:
+        # Only BAO release ALTERNATIVES (DESI vs pre-DESI, the same family the
+        # DR1/DR2 "with and without" logic already treats as separate legs)
+        # are split.  Multiple SN compilations keep their established single
+        # call (the robustness-matrix / SN-set machinery owns that case), and
+        # cross-probe declared overlaps (e.g. act_dr6_lensing alongside the
+        # compressed Planck prior) keep the established routing: one call,
+        # which the runner then blocks with an explicit
+        # overlapping_dataset_combination reason the user can read.
+        ea, eb = _entry(a), _entry(b)
+        if ea is None or eb is None or ea.probe != "bao" or eb.probe != "bao":
+            return False
+        return b in ea.do_not_combine_with or a in eb.do_not_combine_with
+
+    out: list[list[str]] = []
+    for group in groups:
+        contested = [
+            key for key in group
+            if any(_conflict(key, other) for other in group if other != key)
+        ]
+        if not contested:
+            out.append(list(group))
+            continue
+        shared = [key for key in group if key not in contested]
+        legs: list[list[str]] = []
+        for key in contested:
+            for leg in legs:
+                if not any(_conflict(key, member) for member in leg):
+                    leg.append(key)
+                    break
+            else:
+                legs.append([key])
+        for leg in legs:
+            ordered = [key for key in group if key in shared or key in leg]
+            if ordered not in out:
+                out.append(ordered)
+    return out
+
+
 def _cosmology_likelihood_build_calls_from_prompt(text: str) -> list[dict[str, Any]]:
     if _cosmology_requires_dedicated_spectra_likelihood(text):
         return []
@@ -3469,7 +3529,7 @@ def _cosmology_likelihood_run_calls_from_prompt(text: str) -> list[dict[str, Any
             }
             for model in run_models
         ]
-    dataset_groups = _cosmology_dataset_groups_from_prompt(text, dataset_keys)
+    dataset_groups = _split_declared_overlaps(_cosmology_dataset_groups_from_prompt(text, dataset_keys))
     return [
         {
             "id": f"auto_cosmo_run_{uuid.uuid4().hex}",

@@ -29,7 +29,7 @@ likelihood or proposal cannot hide behind the always-present compressed/off-anch
 ### 3. chain_tier trigger matrix
 The in-process runner exposes only two of the three tiers (publication is reserved for
 verified full-likelihood, independent-chain runs on the external path):
-- (lcdm + registered compressed datasets) → `exploratory` + `exploratory_warning` set
+- (lcdm + registered compressed datasets) → `exploratory` + `__exploratory_warning__` set (asserted on check 1's result)
 - (any model + inline_unverified rows) → `blocked` + `__do_not_claim__=True`
 
 ### 4. distance_modulus_model precision vs astropy
@@ -54,7 +54,8 @@ results["lcdm_h0_anchor"] = {
     # reason and must never reach chain_tier="publication"
     # (cosmology_likelihoods/verification.py); a "publication" tier here is a
     # scientific-tier regression, so the check pins exploratory exactly.
-    "pass": 66.5 < h0 < 68.5 and r["chain_tier"] == "exploratory",
+    # ... and the exploratory envelope must carry its __exploratory_warning__ contract.
+    "pass": 66.5 < h0 < 68.5 and r["chain_tier"] == "exploratory" and bool(r.get("__exploratory_warning__")),
     "h0_median": h0,
     "tier": r["chain_tier"],
     "ess": r["chain_diagnostics"].get("proposal_ess"),

@@ -9,6 +9,7 @@ app.services.ai_tools.
 """
 
 import math
+from app.services.posterior_intervals import hdi_interval
 import re
 from typing import TYPE_CHECKING, Any
 
@@ -326,10 +327,11 @@ def _subsample_significance_from_betas(
     else:
         tail = float(np.mean(delta > 0))
     tail_probability_two_sided = float(min(1.0, 2.0 * tail))
-    # Central 94% interval overlap (cheap proxy: do the central intervals
-    # overlap?).  Useful as a categorical hint; this is not an HDI.
-    lo1, hi1 = float(np.percentile(beta1, 3)), float(np.percentile(beta1, 97))
-    lo2, hi2 = float(np.percentile(beta2, 3)), float(np.percentile(beta2, 97))
+    # 94% HDI overlap (cheap proxy: do the two highest-density intervals
+    # overlap?).  Useful as a categorical hint only.  Until 2026-09-09 this
+    # used the 3rd/97th percentiles under an "hdi" name.
+    lo1, hi1 = hdi_interval(beta1, 0.94)
+    lo2, hi2 = hdi_interval(beta2, 0.94)
     overlap = max(0.0, min(hi1, hi2) - max(lo1, lo2))
     pooled = max(hi1 - lo1, hi2 - lo2, 1e-12)
     hdi_overlap_frac = overlap / pooled

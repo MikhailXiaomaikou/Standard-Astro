@@ -35,6 +35,9 @@ need entries unless they change user-visible behavior or research validity.
   emcee runs label whether the autocorrelation estimate rests on walkers at
   least 50 autocorrelation times long; the prior-dominance screen flags a
   posterior that merely fills its flat prior (e.g. r_d in BAO-only runs).
+- The pre-registered v03 exploration task file keeps its frozen,
+  sha256-committed registry snapshot; its `do_not_combine_with` lists predate
+  this change and are not edited.
 - Claim validator: the new run diagnostics (`prior_dominance_screen`,
   `autocorr_chain_length_in_tau`, `__exploratory_warning__` prose), registry
   identifiers (dataset keys, `do_not_combine_with`, paths) and the

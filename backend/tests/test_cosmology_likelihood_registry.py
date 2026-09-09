@@ -1031,9 +1031,10 @@ def test_eboss_dr16_rsd_citations_cover_all_7_z_bins() -> None:
 
 
 def test_eboss_dr16_rsd_complements_sdss_6df_bao_independently() -> None:
-    """sdss_6df_bao and eboss_dr16_rsd should be **independent dataset entries** —
-    users can choose BAO-only / RSD-only / BAO+RSD joint, without forcing RSD and BAO
-    to be bound together in a single entry."""
+    """sdss_6df_bao and eboss_dr16_rsd are **separate dataset entries** (BAO-only
+    and RSD-only legs), not one bundled entry. Since the 2026-09-09 audit they also
+    declare each other in do_not_combine_with (the MGS z=0.15 galaxies feed both), so
+    a joint BAO+RSD fit of the pair is blocked; run them as separate legs."""
     from app.services.cosmology_likelihoods import get_cosmology_dataset
 
     bao = get_cosmology_dataset("sdss_6df_bao")

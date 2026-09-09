@@ -113,7 +113,8 @@ def bench_lcdm_h0_anchor() -> dict[str, Any]:
     """ΛCDM BAO+CMB → H0 anchor.
 
     DESI DR1 BAO + Planck 2018 compressed under flat ΛCDM should recover
-    H0 = 67.4 ± 0.5 km/s/Mpc (the Planck-anchored result), with ESS ≥ 400.
+    H0 in [66.5, 68.5] km/s/Mpc (≈67.7 with the pinned CHW2019 recipe; the
+    CMB distance priors set H0, r_d is a free nuisance parameter), ESS ≥ 400.
     The importance sample is a preliminary numerical regression only.
     """
     from app.services.cosmology_likelihoods import run_likelihood_chain

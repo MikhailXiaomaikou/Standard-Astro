@@ -97,8 +97,11 @@ Chain results are claimable only with `publication_ready=true` and the
 matching `claim_scope`; chains over exclusively full-fidelity products carry
 `executable_full_fidelity_likelihoods`, while priors/approximations remain
 explicitly preliminary. Overlapping samples
-declare reciprocal `do_not_combine_with` pairs (DESI vs SDSS/eBOSS BAO,
-the SN compilations among themselves); violating combinations block.
+declare reciprocal `do_not_combine_with` pairs (DESI vs SDSS/eBOSS BAO and
+eBOSS fσ8, SDSS MGS vs the eBOSS fσ8 compilation, the SN compilations among
+themselves, Pantheon+SH0ES vs the SH0ES prior, and the distance-ladder H0
+anchors among themselves — see the registry for the authoritative list);
+violating combinations block.
 
 Pantheon+ redshift coverage is also provenance-bound rather than being a
 free-text prompt fact. The registered `z=0.001--2.26` interval points to the

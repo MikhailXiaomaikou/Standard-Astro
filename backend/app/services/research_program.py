@@ -2811,6 +2811,22 @@ def _is_physical_dark_energy_history_question(prompt: str) -> bool:
     return any(tok in prompt for tok in ("thawing", "emergent", "mirage", "physical dark-energy", "physical dark energy"))
 
 
+def _combo_has_declared_overlap(keys: list[str]) -> bool:
+    """True when any two registered datasets in ``keys`` declare each other
+    in ``do_not_combine_with`` (checked in both directions)."""
+    entries = []
+    for key in keys:
+        try:
+            entries.append(get_cosmology_dataset(key))
+        except Exception:
+            continue
+    for index, left in enumerate(entries):
+        for right in entries[index + 1:]:
+            if right.key in left.do_not_combine_with or left.key in right.do_not_combine_with:
+                return True
+    return False
+
+
 def _proposed_experiment_matrix(dataset_keys: list[str], models: list[str], text: str) -> list[dict[str, Any]]:
     keys = _clean_dataset_keys(dataset_keys)
     if not keys:
@@ -2875,6 +2891,12 @@ def _proposed_experiment_matrix(dataset_keys: list[str], models: list[str], text
         cleaned = _clean_dataset_keys(combo)
         marker = tuple(cleaned)
         if not cleaned or marker in seen:
+            continue
+        # A cell whose members declare each other in do_not_combine_with
+        # (e.g. DESI BAO + the eBOSS fσ8 compilation, which re-observes the
+        # same tracers) would be blocked unconditionally by the runner; the
+        # single-probe legs already cover those datasets separately.
+        if _combo_has_declared_overlap(cleaned):
             continue
         seen.add(marker)
         cell_label = f"ΛCDM baseline — {label}" if extended_models or special_model_gap else label

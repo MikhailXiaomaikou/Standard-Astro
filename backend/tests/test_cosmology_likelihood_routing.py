@@ -3256,3 +3256,37 @@ def test_exclusion_survives_later_neutral_mention() -> None:
         "Do not run DESI DR1 and Pantheon separately; "
         "then combine them in LCDM."
     ) == [["desi_dr1_bao", "pantheon_plus"]]
+
+
+def test_desi_or_pre_desi_bao_runs_as_separate_legs_not_one_blocked_joint() -> None:
+    """2026-09-09 audit follow-up: desi_dr1_bao and sdss_6df_bao now declare
+    each other in do_not_combine_with (SDSS MGS lies inside the DESI BGS
+    footprint), so the "DESI or pre-DESI" selection must become two run legs —
+    one joint call would be blocked unconditionally. Keys that conflict with
+    nothing are shared by every leg."""
+    from app.api.chat import _cosmology_likelihood_run_calls_from_prompt
+    from app.services.agent_runtime.prompt_routing import _split_declared_overlaps
+    from app.services.cosmology_likelihoods import get_cosmology_dataset
+
+    prompt = (
+        "I am doing a BAO-only distance-ratio check without CMB calibration or H0 prior. "
+        "Use DESI or pre-DESI BAO products as appropriate, and do not infer absolute H0 "
+        "without rd calibration."
+    )
+    calls = _cosmology_likelihood_run_calls_from_prompt(prompt)
+    legs = [call["input"]["dataset_keys"] for call in calls]
+    assert ["desi_dr1_bao"] in legs and ["sdss_6df_bao"] in legs, legs
+    for leg in legs:
+        for i, left in enumerate(leg):
+            for right in leg[i + 1:]:
+                assert right not in get_cosmology_dataset(left).do_not_combine_with, leg
+                assert left not in get_cosmology_dataset(right).do_not_combine_with, leg
+    # Shared, non-conflicting partners ride along on every leg.
+    assert _split_declared_overlaps([["desi_dr1_bao", "sdss_6df_bao", "planck2018_compressed"]]) == [
+        ["desi_dr1_bao", "planck2018_compressed"],
+        ["sdss_6df_bao", "planck2018_compressed"],
+    ]
+    assert _split_declared_overlaps([["desi_dr1_bao", "planck2018_compressed"]]) == [
+        ["desi_dr1_bao", "planck2018_compressed"],
+    ]
+

@@ -2630,3 +2630,29 @@ def test_the_caller_plan_argument_contributes_nothing_when_a_server_record_exist
     # 4. Without a record the argument is the only plan there is.
     markdown, draft = outputs(export_research_report(research_plan=plan("ARGUMENT")))
     assert "ARGUMENT_QUESTION" in markdown and "ARGUMENT_QUESTION" in draft
+
+
+def test_proposed_matrix_never_pairs_datasets_that_declare_overlap() -> None:
+    """2026-09-09 audit follow-up: DESI BAO and the eBOSS fσ8 compilation now
+    declare each other in do_not_combine_with, so a joint "BAO + RSD fσ8" cell
+    would be blocked unconditionally. The matrix keeps the single-probe legs
+    and drops any combo whose members conflict."""
+    from app.services.cosmology_likelihoods import get_cosmology_dataset
+    from app.services.research_program import _proposed_experiment_matrix
+
+    matrix = _proposed_experiment_matrix(
+        ["desi_dr1_bao", "eboss_dr16_rsd", "planck2018_compressed"],
+        ["lcdm"],
+        "BAO + RSD growth consistency check",
+    )
+    labels = [cell["label"] for cell in matrix]
+    assert any("BAO only" in label for label in labels)
+    assert any("RSD fσ8 only" in label for label in labels)
+    assert not any("BAO + RSD" in label for label in labels)
+    for cell in matrix:
+        keys = list(cell["dataset_keys"])
+        for i, left in enumerate(keys):
+            for right in keys[i + 1:]:
+                assert right not in get_cosmology_dataset(left).do_not_combine_with, (cell["label"], left, right)
+                assert left not in get_cosmology_dataset(right).do_not_combine_with, (cell["label"], left, right)
+

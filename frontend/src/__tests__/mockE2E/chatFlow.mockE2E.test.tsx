@@ -5,9 +5,10 @@
  * key availability, and prompt-driven nondeterminism. This file takes a
  * canned ThinkingEvent stream (recorded in fixtures/) and feeds the
  * recorded tool_result + agent_text events into the SAME production
- * renderers ChatPage uses — CosmologyLikelihoodPanel for the tool card,
- * MarkdownText for the visible agent message — then asserts on the
- * rendered DOM. It catches UI regressions (e.g. an internal
+ * renderers ChatPage uses — the panel AutoToolResult selects for the
+ * tool name (CosmologyMCMCPanel for chain runners, CosmologyLikelihoodPanel
+ * for dataset/build tools), MarkdownText for the visible agent message —
+ * then asserts on the rendered DOM. It catches UI regressions (e.g. an internal
  * __do_not_claim__ / __message_to_model__ marker leaking into the
  * visible message) without paying the LLM cost or accepting LLM jitter.
  *
@@ -24,6 +25,7 @@ import path from "path";
 import { describe, it, expect } from "vitest";
 import { render } from "@testing-library/react";
 import CosmologyLikelihoodPanel from "../../components/chat/CosmologyLikelihoodPanel";
+import CosmologyMCMCPanel from "../../components/chat/CosmologyMCMCPanel";
 import MarkdownText from "../../components/chat/MarkdownText";
 
 interface ThinkingEventLike {
@@ -66,6 +68,38 @@ const INTERNAL_MARKER_TOKENS = [
   "exploratory_warning",
   "suggested_next_step",
 ];
+
+// Tool names AutoToolResult routes to CosmologyMCMCPanel (keep in sync with
+// src/pages/Chat/AutoToolResult.tsx). Everything else cosmology-shaped goes
+// to CosmologyLikelihoodPanel.
+const MCMC_PANEL_TOOLS = new Set([
+  "fit_cosmology_mcmc",
+  "run_cobaya_cosmology",
+  "get_cosmology_run_status",
+  "run_cosmology_likelihood_chain",
+  "run_cmb_rotation_likelihood",
+  "run_nested_sampler",
+  "evaluate_chain_diagnostics",
+]);
+
+// Visible tier badge text CosmologyMCMCPanel renders for each chain_tier
+// (TIER_STYLE labels in CosmologyMCMCPanel.tsx).
+const MCMC_TIER_LABEL: Record<string, string> = {
+  publication: "publication-ready",
+  exploratory: "exploratory",
+  blocked: "blocked — do not cite",
+};
+
+function renderProductionToolCard(toolName: string, result: Record<string, unknown>) {
+  if (MCMC_PANEL_TOOLS.has(toolName)) {
+    // AutoToolResult unwraps a nested `result` envelope before rendering.
+    const nested = result.result && typeof result.result === "object"
+      ? result.result as Record<string, unknown>
+      : result;
+    return render(<CosmologyMCMCPanel result={nested} />);
+  }
+  return render(<CosmologyLikelihoodPanel result={result} />);
+}
 
 function loadFixture(name: string): Fixture {
   const p = path.join(FIXTURES_DIR, `${name}.json`);
@@ -121,14 +155,15 @@ describe("mockE2E chatFlow", () => {
     const toolEvents = f.thinking_events.filter((e) => e.type === "tool_result");
     const agentTexts = f.thinking_events.filter((e) => e.type === "agent_text");
 
-    // ── Tool card: render the recorded tool_result through the real
-    // CosmologyLikelihoodPanel (the route ChatPage picks for
-    // run_cosmology_likelihood_chain) and assert on the DOM. ──
+    // ── Tool card: render the recorded tool_result through the panel
+    // AutoToolResult selects in production for this tool name
+    // (CosmologyMCMCPanel for run_cosmology_likelihood_chain) and assert
+    // on the DOM. ──
     if (exp.tool_card_visible) {
       const evt = toolEvents.find((e) => e.tool === exp.tool_card_visible);
       expect(evt, `tool_card_visible '${exp.tool_card_visible}' not in events`).toBeTruthy();
       const result = (evt?.result || {}) as Record<string, unknown>;
-      const { container } = render(<CosmologyLikelihoodPanel result={result} />);
+      const { container } = renderProductionToolCard(exp.tool_card_visible, result);
       const cardText = container.textContent || "";
 
       // The model name the result declared must surface in the card.
@@ -150,9 +185,36 @@ describe("mockE2E chatFlow", () => {
       if (exp.tool_card_status) {
         expect(String(result.__tool_status__ ?? result.analysis_status)).toBe(exp.tool_card_status);
       }
+      // The rendered badge must show the tier the fixture expects, and a
+      // non-publication chain must not be presented as publication-ready.
+      if (exp.tool_card_tier_badge && MCMC_PANEL_TOOLS.has(exp.tool_card_visible)) {
+        const label = MCMC_TIER_LABEL[exp.tool_card_tier_badge];
+        expect(label, `unknown tier badge '${exp.tool_card_tier_badge}'`).toBeTruthy();
+        expect(cardText).toContain(label);
+        if (exp.tool_card_tier_badge !== "publication") {
+          expect(cardText).not.toContain(MCMC_TIER_LABEL.publication);
+        }
+        if (exp.tool_card_tier_badge === "exploratory") {
+          // The exploratory banner carries the backend's own warning text.
+          const warning = String(result.__exploratory_warning__ || "");
+          expect(warning.length).toBeGreaterThan(0);
+          expect(cardText).toContain(warning);
+        }
+      }
       if (exp.tool_card_tier_badge && exp.tool_card_tier_badge !== "publication") {
         expect(result.publication_ready).toBe(false);
         expect(cardText).not.toContain("publication-ready numerical result");
+      }
+      // Status text: the panel shows a status chip only for states other
+      // than COMPLETED / EXPLORATORY, so an EXPLORATORY fixture must not
+      // surface a bare status token (the tier badge carries the state).
+      if (exp.tool_card_status && MCMC_PANEL_TOOLS.has(exp.tool_card_visible)) {
+        const status = exp.tool_card_status.toUpperCase();
+        if (status === "COMPLETED" || status === "EXPLORATORY") {
+          expect(cardText).not.toContain(status);
+        } else {
+          expect(cardText).toContain(status);
+        }
       }
     }
 

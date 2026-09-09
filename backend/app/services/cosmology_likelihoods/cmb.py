@@ -38,14 +38,54 @@ _T_CMB_K = 2.7255
 _T_CMB_RATIO4 = (_T_CMB_K / 2.7) ** 4
 # Eq (3): 3/(4 Omega_gamma h^2) = 31500 (T_CMB/2.7)^-4 ; baryon loading of `a`.
 _RS_BARYON_COEF = 31500.0 / _T_CMB_RATIO4
+# Hu & Sugiyama 1996 (ApJ 471, 542, Eq. E-1) photon-decoupling redshift fit,
+# reproduced as CHW2019 Eqs 8-10 and Komatsu et al. 2009 (ApJS 180, 330,
+# Eqs 66-68).  The g1 prefactor is 0.0783 in every one of those sources.  A
+# transcription slip (0.0738) lived here until 2026-09-09; it lowered z* by
+# 1.3 and, combined with the sound-horizon matter term below, left the kernel
+# +0.10 (+1.1 sigma of the Table-I error) high in l_A at the Planck means.
+# Do NOT "correct" this fit toward CAMB's z* (1089.9 vs the fit's 1091.9 at
+# Planck 2018 values): the ~0.2% fitting-formula offset is part of the
+# recipe the published priors absorb — see test_recipe_reproduces_table1.
+_HS96_G1_COEF = 0.0783
+# Planck 2018 baseline neutrino sector: one massive eigenstate with
+# sum(m_nu) = 0.06 eV, omega_nu h^2 = sum(m_nu)/(93.14 eV) (Planck 2018 VI,
+# Sec. 2.1).  The Table-I priors come from base-LCDM chains that carry this
+# fixed mass, and the sampled `omegam` follows the Planck convention
+# Omega_m = Omega_b + Omega_c + Omega_nu.  At z* the neutrino is still
+# relativistic (T_nu ~ 0.19 eV >> m_nu), so it must not enter the pressureless
+# matter term of the sound-horizon integral; it is matter-like only at the
+# late times that R and D_M(z*) are dominated by.  Excluding it from r_s is
+# what closes the last ~0.09% of l_A against Table I (verified 2026-09-09
+# against a CAMB 1.6.6 reference at both Planck 2018 base-LCDM columns).
+_PLANCK18_BASELINE_OMNU_H2 = 0.06 / 93.14
+
+
+def _hs96_decoupling_redshift(ombh2, omh2):
+    """Hu & Sugiyama 1996 Eq. E-1 fit for z* (CHW2019 Eqs 8-10)."""
+    g1 = _HS96_G1_COEF * ombh2 ** -0.238 / (1.0 + 39.5 * ombh2 ** 0.763)
+    g2 = 0.560 / (1.0 + 21.1 * ombh2 ** 1.81)
+    return 1048.0 * (1.0 + 0.00124 * ombh2 ** -0.738) * (1.0 + g1 * omh2 ** g2)
 
 
 def _cmb_distance_priors(omegam, h0, ombh2, w0=-1.0, wa=0.0):
     """(R, l_A, Omega_b h^2) CMB distance priors for flat (w0,wa)CDM, per
     Chen-Huang-Wang 2019.  Inputs scalar or broadcastable arrays.  R and l_A are
-    H0-independent except through z*/radiation (the c/H0 cancels in both).
-    Self-check: LCDM at Planck 2018 (Om=0.3153, H0=67.36, ombh2=0.02237) ->
-    R~1.750, l_A~301.5."""
+    H0-independent except through z*/radiation/omega_nu (the c/H0 cancels).
+
+    Compression recipe (must match how the Table-I numbers were produced, or
+    the prior is biased even when every input is exact):
+      * z*      — Hu & Sugiyama 1996 fit, g1 prefactor 0.0783;
+      * Omega_r — CHW2019 Eq 6, Omega_m/(1+z_eq) with z_eq = 2.5e4 omega_m
+                  Theta_2.7^-4 (omega_r h^2 = 4.15e-5 at Planck values, 0.7%
+                  below CAMB's 4.18e-5 — swapping it alone shifts l_A by ~+0.5);
+      * r_s     — matter term is baryons + CDM only: omega_m minus the Planck
+                  baseline omega_nu h^2 = 0.06/93.14 (relativistic at z*);
+      * D_M, R  — full Planck-convention Omega_m (neutrino matter-like today).
+    Self-check at the Planck 2018 TT,TE,EE+lowE means (Om=0.3166, H0=67.27,
+    ombh2=0.02236): R = 1.7504, l_A = 301.457 against Table I
+    1.7502 +- 0.0046, 301.471 +- 0.090 (pinned by tests/test_planck_distance_prior.py).
+    """
     scalar = np.ndim(omegam) == 0
     om = np.atleast_1d(np.asarray(omegam, float))
     obh2 = np.atleast_1d(np.asarray(ombh2, float))
@@ -54,21 +94,29 @@ def _cmb_distance_priors(omegam, h0, ombh2, w0=-1.0, wa=0.0):
     waa = np.atleast_1d(np.asarray(wa, float))
     om, obh2, h2, w0a, waa = np.broadcast_arrays(om, obh2, h2, w0a, waa)
     omh2 = om * h2
-    # Recombination redshift z* (Eqs 8-10, Hu & Sugiyama 1996)
-    g1 = 0.0738 * obh2 ** -0.238 / (1.0 + 39.5 * obh2 ** 0.763)
-    g2 = 0.560 / (1.0 + 21.1 * obh2 ** 1.81)
-    zstar = 1048.0 * (1.0 + 0.00124 * obh2 ** -0.738) * (1.0 + g1 * omh2 ** g2)
-    # Radiation density incl. neutrinos (Eq 6); flat closes Omega_de.
+    zstar = _hs96_decoupling_redshift(obh2, omh2)
+    # Radiation density incl. neutrinos (CHW2019 Eq 6); flat closes Omega_de.
     omr = om / (1.0 + 2.5e4 * omh2 / _T_CMB_RATIO4)
     omde = 1.0 - om - omr
+    # Sound-horizon matter term: baryons + CDM only (see _PLANCK18_BASELINE_OMNU_H2).
+    omcb = om - _PLANCK18_BASELINE_OMNU_H2 / h2
+    omde_rs = 1.0 - omcb - omr
     omc, omrc, omdec = om[:, None], omr[:, None], omde[:, None]
+    omcbc, omdersc = omcb[:, None], omde_rs[:, None]
     w0c, wac, obc = w0a[:, None], waa[:, None], obh2[:, None]
     node = (_GL64_NODES + 1.0) * 0.5  # (64,) in [0,1]
 
-    def inv_E(z):  # z shape (N, 64)
+    def _rho_de(z):
         x = 1.0 + z
-        rho = x ** (3.0 * (1.0 + w0c + wac)) * np.exp(-3.0 * wac * z / x)
-        return 1.0 / np.sqrt(omrc * x ** 4 + omc * x ** 3 + omdec * rho)
+        return x ** (3.0 * (1.0 + w0c + wac)) * np.exp(-3.0 * wac * z / x)
+
+    def inv_E(z):  # z shape (N, 64); late-time expansion history for D_M
+        x = 1.0 + z
+        return 1.0 / np.sqrt(omrc * x ** 4 + omc * x ** 3 + omdec * _rho_de(z))
+
+    def inv_E_rs(z):  # pre-decoupling expansion history for r_s (no massive nu)
+        x = 1.0 + z
+        return 1.0 / np.sqrt(omrc * x ** 4 + omcbc * x ** 3 + omdersc * _rho_de(z))
 
     # I = int_0^{z*} dz/E, in u=ln(1+z) so the low-z-peaked integrand is smooth.
     ustar = np.log(1.0 + zstar)[:, None]
@@ -78,7 +126,7 @@ def _cmb_distance_priors(omegam, h0, ombh2, w0=-1.0, wa=0.0):
     astar = (1.0 / (1.0 + zstar))[:, None]
     a = astar * node
     rb = _RS_BARYON_COEF * obc * a
-    integ = inv_E(1.0 / a - 1.0) / (a ** 2 * np.sqrt(3.0 * (1.0 + rb)))
+    integ = inv_E_rs(1.0 / a - 1.0) / (a ** 2 * np.sqrt(3.0 * (1.0 + rb)))
     i_rs = np.sum(_GL64_WEIGHTS * (astar * 0.5) * integ, axis=-1)
 
     big_r = np.sqrt(om) * i_dc

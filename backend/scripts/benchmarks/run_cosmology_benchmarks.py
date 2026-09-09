@@ -1104,16 +1104,20 @@ def bench_cmb_distance_prior_reproduces_planck() -> dict[str, Any]:
     used for extended FLAT dark-energy CMB constraints so the physics can't drift."""
     from app.services.cosmology_likelihoods import _cmb_distance_priors
 
-    R, lA, _ = _cmb_distance_priors(0.3153, 67.36, 0.02237, w0=-1.0, wa=0.0)
+    # Evaluate at the Planck 2018 TT,TE,EE+lowE base-ΛCDM means (Planck VI
+    # Table 2: Om=0.3166, H0=67.27, ombh2=0.02236) — the chain CHW2019 Table I
+    # was compressed from. Tolerance is one third of the Table-I sigma so the
+    # benchmark discriminates compression recipes: the pre-2026-09-09 kernel
+    # (Hu-Sugiyama prefactor 0.0738, massive neutrino inside r_s) sat at
+    # l_A=301.554 (+0.9σ) and fails this; the pinned recipe gives 301.457.
+    R, lA, _ = _cmb_distance_priors(0.3166, 67.27, 0.02236, w0=-1.0, wa=0.0)
     return {
-        # Tight bounds around the validated kernel output (R≈1.7496, l_A≈301.55),
-        # both inside ~1σ of the published prior.
-        "pass": (1.749 < R < 1.751) and (301.40 < lA < 301.70),
+        "pass": (abs(R - 1.7502) < 0.0015) and (abs(lA - 301.471) < 0.03),
         "R": round(R, 4),
         "l_A": round(lA, 3),
         "R_pub_dev_sigma": round((R - 1.7502) / 0.0046, 2),
         "lA_pub_dev_sigma": round((lA - 301.471) / 0.090, 2),
-        "target": "R=1.7502±0.0046, l_A=301.471±0.090 (CHW2019 Table I), within ~1σ",
+        "target": "R=1.7502±0.0046, l_A=301.471±0.090 (CHW2019 Table I), within 1/3σ at the Planck 2018 TT,TE,EE+lowE means",
     }
 
 

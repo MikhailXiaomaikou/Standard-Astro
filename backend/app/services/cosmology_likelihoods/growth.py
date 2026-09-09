@@ -18,6 +18,13 @@ from app.services.cosmology_likelihoods.distances import (
 
 
 # ── Structure-growth kernel for RSD fσ8 (Linder γ-parametrisation) ──────────
+# Accuracy of the γ-index approximation for f·D(z)/D(0) against the exact
+# linear-growth ODE (checked 2026-09-09 over z = 0.15–1.48, Ωm = 0.3153):
+# 0.17% for ΛCDM, 0.36% for (w0, wa) = (-0.9, -0.3), 0.58% for the DESI-like
+# (-0.7, -1.0) corner — an order of magnitude below the 8–30% per-bin errors
+# of the eBOSS fσ8 vector this kernel serves.  Do not use it for sub-percent
+# growth work (e.g. a full-shape or Stage-IV RSD likelihood) without replacing
+# it by the ODE solution.
 # 32-node Gauss-Legendre rule for the growth-factor integral, computed once.
 _GROWTH_GL32_NODES, _GROWTH_GL32_WEIGHTS = np.polynomial.legendre.leggauss(32)
 

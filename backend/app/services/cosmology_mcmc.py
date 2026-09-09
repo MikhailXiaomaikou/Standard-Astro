@@ -19,6 +19,8 @@ from typing import Any
 
 import numpy as np
 
+from app.services.posterior_intervals import hdi_interval
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_PRIORS: dict[str, tuple[float, float]] = {
@@ -645,6 +647,13 @@ def build_cobaya_info(
 
 def _chain_diagnostics_from_emcee_chain(chain: np.ndarray, names: tuple[str, ...]) -> dict[str, Any]:
     # emcee chain is (draws, walkers, ndim); ArviZ wants (chains, draws).
+    # CAVEAT (2026-09-09 audit, B3): the walkers of ONE affine-invariant
+    # ensemble are treated here as if they were independent chains.  They
+    # share initialisation and interact through the stretch move, so the
+    # rank R-hat below is optimistic and the bulk ESS counts correlated
+    # walkers.  This is why fit_cosmology_emcee never grants the publication
+    # tier on its own (publication_gate_passed stays False); the numbers are
+    # convergence *diagnostics*, not an independent-chain certificate.
     draws, walkers, ndim = chain.shape
     flat = chain.reshape(-1, ndim)
     try:
@@ -709,8 +718,8 @@ def _chain_diagnostics_from_emcee_chain(chain: np.ndarray, names: tuple[str, ...
                 "mean": round(float(np.mean(col)), 6),
                 "std": round(float(np.std(col)), 6),
                 "median": round(float(np.median(col)), 6),
-                "hdi_low_94": round(float(np.percentile(col, 3)), 6),
-                "hdi_high_94": round(float(np.percentile(col, 97)), 6),
+                "hdi_low_94": round(float(hdi_interval(col, 0.94)[0]), 6),
+                "hdi_high_94": round(float(hdi_interval(col, 0.94)[1]), 6),
                 "rhat": None,
                 "ess_bulk": None,
                 "ess_tail": None,
@@ -735,7 +744,7 @@ def _safe_hdi(values: np.ndarray, az: Any) -> tuple[float, float]:
         hdi = az.hdi(values, hdi_prob=0.94)
         return float(hdi[0]), float(hdi[1])
     except Exception:
-        return float(np.percentile(values, 3)), float(np.percentile(values, 97))
+        return hdi_interval(values, 0.94)
 
 
 def _safe_float(value: Any) -> float:

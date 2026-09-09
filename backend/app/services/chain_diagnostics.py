@@ -13,6 +13,7 @@ from typing import Any
 
 import numpy as np
 
+from app.services.posterior_intervals import hdi_interval
 from app.services.cosmology_likelihoods.verification import (
     PUBLICATION_ESS_MIN,
     PUBLICATION_MIN_INDEPENDENT_CHAINS,
@@ -57,6 +58,7 @@ def evaluate_chain_diagnostics(
         rhat = _rhat(chain_arrays)
         ess = _ess(chain_arrays)
         values = stacked.reshape(-1)
+        hdi_low, hdi_high = hdi_interval(values, 0.94)
         status = "ok"
         if rhat is None:
             status = "rhat_unavailable"
@@ -77,8 +79,8 @@ def evaluate_chain_diagnostics(
             "mean": round(float(np.mean(values)), 6),
             "std": round(float(np.std(values, ddof=1)), 6) if values.size > 1 else 0.0,
             "median": round(float(np.median(values)), 6),
-            "hdi_low_94": round(float(np.percentile(values, 3.0)), 6),
-            "hdi_high_94": round(float(np.percentile(values, 97.0)), 6),
+            "hdi_low_94": round(float(hdi_low), 6),
+            "hdi_high_94": round(float(hdi_high), 6),
             "rhat": round(float(rhat), 6) if rhat is not None else None,
             "ess_bulk": round(float(ess), 3),
             "mcse_mean": round(float(np.std(values, ddof=1) / math.sqrt(max(ess, 1.0))), 6)

@@ -20,6 +20,8 @@ from typing import Any
 
 import numpy as np
 
+from app.services.posterior_intervals import hdi_interval
+
 
 MAX_DIMENSIONS = 8
 MIN_NLIVE_FOR_PUBLICATION_READY = 50
@@ -537,12 +539,13 @@ def _prepare_gaussian(spec: GaussianLikelihoodSpec, parameter_order: list[str]) 
 
 
 def _posterior_summary(values: np.ndarray) -> dict[str, Any]:
+    hdi_low, hdi_high = hdi_interval(values, 0.94)  # true HDI, not percentiles
     return {
         "mean": round(float(np.mean(values)), 6),
         "std": round(float(np.std(values)), 6),
         "median": round(float(np.median(values)), 6),
-        "hdi_low_94": round(float(np.percentile(values, 3.0)), 6),
-        "hdi_high_94": round(float(np.percentile(values, 97.0)), 6),
+        "hdi_low_94": round(float(hdi_low), 6),
+        "hdi_high_94": round(float(hdi_high), 6),
         "status": "nested_sampling",
     }
 

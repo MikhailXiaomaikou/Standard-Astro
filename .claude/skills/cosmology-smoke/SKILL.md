@@ -1,6 +1,6 @@
 ---
 name: cosmology-smoke
-description: Run a cosmology science-regression smoke check. Verifies ΛCDM BAO+CMB recovers H0≈67.4 at chain_tier=exploratory (the in-process compressed path never reaches publication), wCDM BAO+CMB lands w near -1 or is honestly blocked by the off-anchor guard, the blocked tier triggers on inline rows, and distance_modulus_model stays within 1e-3 mag of astropy. Use after any change to backend/app/services/cosmology_*.py or backend/app/services/cosmology_likelihoods.py to confirm no science regression.
+description: Run a cosmology science-regression smoke check. Verifies ΛCDM BAO+CMB recovers H0≈67.4 at chain_tier=exploratory (the in-process compressed path never reaches publication), wCDM BAO+CMB recovers a numerical w near -1 through the emcee fallback (a blocked chain is a regression), the blocked tier triggers on inline rows, and distance_modulus_model stays within 1e-3 mag of astropy. Use after any change to backend/app/services/cosmology_*.py or backend/app/services/cosmology_likelihoods.py to confirm no science regression.
 ---
 
 # Cosmology science-regression smoke
@@ -18,11 +18,13 @@ Tier must be `exploratory`: every compressed-likelihood chain carries the
 in-process (cosmology_likelihoods/verification.py). A `publication` tier here is a regression.
 
 ### 2. wCDM BAO+CMB → DESI 2024 reproduction
-Same datasets with model=`wcdm`. Two honest outcomes: w lands near -1 (DESI 2024 reports
-w ≈ -0.95 ± 0.20) at tier `exploratory`, or the chain is `blocked` because the importance
-sampler's ESS collapses on the broad w prior / the off-anchor frontier guard fires — in
-which case the envelope has no `parameters` block and the check reports the blocker
-instead of a w value. Both are non-regressions; a silent `publication` tier is not.
+Same datasets with model=`wcdm`, run with `allow_emcee_fallback=True` (what the chat tool
+uses): the plain importance sampler collapses on the broad w prior (ESS ~2), so the fallback
+emcee chain is the one that carries the science. The check REQUIRES a numerical posterior:
+tier `exploratory` (the off-anchor frontier guard keeps w off the publication tier by design)
+and w within (-1.5, -0.5) (DESI 2024 reports w ≈ -0.95 ± 0.20). A `blocked` chain, a missing
+`parameters` block, or a `publication` tier is a regression here — never a pass — so a broken
+likelihood or proposal cannot hide behind the always-present compressed/off-anchor gate reasons.
 
 ### 3. chain_tier trigger matrix
 The in-process runner exposes only two of the three tiers (publication is reserved for
@@ -58,20 +60,15 @@ results["lcdm_h0_anchor"] = {
     "ess": r["chain_diagnostics"].get("proposal_ess"),
 }
 
-# Check 2: wCDM BAO+CMB
-r2 = run_likelihood_chain(model="wcdm", dataset_keys=["desi_dr1_bao", "planck2018_compressed"], n_samples=4000, random_seed=42)
-# A blocked envelope carries no "parameters" block (it must not be quotable);
-# the check then passes only if the blocker is an honest, named gate reason.
+# Check 2: wCDM BAO+CMB — emcee fallback, numerical w REQUIRED (blocked == regression)
+r2 = run_likelihood_chain(model="wcdm", dataset_keys=["desi_dr1_bao", "planck2018_compressed"], n_samples=4000, random_seed=42, allow_emcee_fallback=True)
 w = (r2.get("parameters") or {}).get("w", {}).get("median")
-blocked_honestly = (
-    r2["chain_tier"] == "blocked"
-    and r2.get("__do_not_claim__") is True
-    and bool(r2.get("publication_gate", {}).get("reasons"))
-)
 results["wcdm_w_near_minus_one"] = {
-    "pass": (w is not None and -1.5 < w < -0.5 and r2["chain_tier"] == "exploratory") or blocked_honestly,
+    "pass": r2["chain_tier"] == "exploratory" and w is not None and -1.5 < w < -0.5,
     "w_median": w,
     "tier": r2["chain_tier"],
+    "sampler": r2.get("sampler"),
+    "ess": r2["chain_diagnostics"].get("proposal_ess"),
     "gate_reasons": r2.get("publication_gate", {}).get("reasons"),
 }
 
@@ -116,6 +113,6 @@ PY
 
 - All four `pass=true` → safe to push.
 - `lcdm_h0_anchor.pass=false` → check `_flat_de_distances_at_z` or `_desi_dr1_bao_predictions` for regressions.
-- `wcdm_w_near_minus_one.pass=false` → a `publication` tier, an unblocked chain with w outside (-1.5, -0.5), or a blocked chain with no gate reason; check w prior bounds, `_desi_dr1_bao_predictions` w extraction, or the off-anchor / ESS guards.
+- `wcdm_w_near_minus_one.pass=false` → the chain is `blocked` (emcee fallback failed or its ESS collapsed), lands on a `publication` tier, or w sits outside (-1.5, -0.5); check w prior bounds, `_desi_dr1_bao_predictions` w extraction, `_run_emcee_chain`, or the off-anchor / ESS guards.
 - `chain_tier_blocked_inline.pass=false` → check `CLAIMABLE_INPUT_ORIGINS` filter in `fit_cosmology_emcee`.
 - `distmod_precision_mag.pass=false` → check Gauss-Legendre node order in `distance_modulus_model`; should not regress past 32.

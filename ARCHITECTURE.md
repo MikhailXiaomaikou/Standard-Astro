@@ -165,7 +165,7 @@ numeric validation, citation validation, rate limits, and UI status chips.
 > extracted to `standard-astro-verticals` on 2026-06-03 along with their tool
 > implementations and prompt modules. See that repo for their documentation.
 
-**Paper-to-tool mining workflow** (catalog-only: the seven mining tools are outside the cosmology manifest, so the chat assistant cannot see or invoke them; they are exercised from tests and developer scripts)
+**Paper-to-tool mining workflow** (catalog-only: the seven mining tools are outside the cosmology manifest, so the chat assistant cannot see or invoke them; today they are exercised only by the backend test suite)
 
 1. `build_paper_mining_candidate_pool` assembles a deduplicated corpus from
    supplied seed papers and, only when explicitly enabled, live arXiv searches.
@@ -242,10 +242,10 @@ Entrypoint: [`src/App.tsx`](./frontend/src/App.tsx). Routes are declared here; t
 
 ### Shared infrastructure
 
-- [`src/api/client.ts`](./frontend/src/api/client.ts) — Axios + typed SSE streaming. `ThinkingEvent` union covers `agent_text` / `tool_call` / `tool_result` / `status` / **`honest_abstention`** / `error`. `getAIBackendStatus()` feeds the F4 pre-send gate.
+- [`src/api/client.ts`](./frontend/src/api/client.ts) — Axios + typed SSE streaming. `ThinkingEvent` union covers `agent_text` / `tool_call` / `tool_progress` / `tool_result` / `status` / `workflow_budget` / `workflow_checkpoint` / **`honest_abstention`** / `tools_disabled`; SSE `error` frames are raised as a typed `Error` (with `error_class`) rather than emitted as a timeline event. `getAIBackendStatus()` feeds the F4 pre-send gate.
 - [`src/context/AuthContext.tsx`](./frontend/src/context/AuthContext.tsx) — JWT lifecycle; logout only on 401/403, not transient errors.
 - [`src/components/viz/*`](./frontend/src/components/viz) — PlotBuilder (Plotly publication-grade; Fit checkbox now shows ✓ / "(not supported)" per chart type) and AladinViewer. (SpectrumViewer / LightCurveViewer / ImageCutoutViewer / MCMCDiagnostics were removed 2026-06-11 — dead code orphaned from every route by the M3 page trim.)
-- [`src/components/chat/*`](./frontend/src/components/chat) — MarkdownText, DataSourcesPanel, AckButton, CosmologyMCMCPanel, CosmologyLikelihoodPanel, `ResearchProgramPanel` (plan / matrix / evidence-graph / fact-check results and the exported 13-section report card, #70), `ResearchStepsCard` (research-turn step timeline), DefaultToolResultPanel, PanelEmptyState, `ScalarVerificationReceiptCard`, and the general `EvidenceReceiptCard`. The chat sidebar and the figure-expand / paper modals live beside the page in `pages/Chat/` (`ChatSidebar.tsx`, `ChatModals.tsx`).
+- [`src/components/chat/*`](./frontend/src/components/chat) — MarkdownText, DataSourcesPanel, AckButton, CosmologyMCMCPanel, CosmologyLikelihoodPanel, `ResearchProgramPanel` (plan / matrix / evidence-graph / fact-check / report-package results for the research and paper-mining tools, extended by #70), `ResearchStepsCard` (research-turn method-step timeline), DefaultToolResultPanel, PanelEmptyState, `ScalarVerificationReceiptCard`, and the general `EvidenceReceiptCard`. The chat sidebar, share / paper-draft modals, figure-expand modal, and the surfaced 13-section report card (`VisibleResearchReport`) live beside the page in `pages/Chat/` (`ChatSidebar.tsx`, `ChatModals.tsx`, `AutoToolResult.tsx`, `ActionCard.tsx`).
 - [`src/i18n/index.tsx`](./frontend/src/i18n/index.tsx) — 4-language flat dictionary; ~850 keys (counted 2026-09-09).
 - [`src/styles/journal.css`](./frontend/src/styles/journal.css) — ~2.6 k-line Journal-Edition stylesheet overriding chat / pipeline / browse / ADQL / sessions / account to the newspaper palette; loaded **after** `App.css` so same-specificity rules win the cascade.
 

@@ -3321,4 +3321,19 @@ def test_explicit_joint_desi_and_pre_desi_request_stays_one_call_for_the_runner_
     assert ["desi_dr1_bao", "planck2018_compressed"] in alt_legs, alt_legs
     assert ["sdss_6df_bao", "planck2018_compressed"] in alt_legs, alt_legs
     assert not any("desi_dr1_bao" in leg and "sdss_6df_bao" in leg for leg in alt_legs), alt_legs
+    # Anaphoric joint intent across adjacent clauses is preserved (round 5):
+    # "combine them" after the pair was named still means one joint call.
+    anaphoric = "Run DESI and pre-DESI BAO; combine them in one joint fit under flat LCDM."
+    assert _explicit_joint_request(anaphoric) is True
+    anaphoric_legs = [call["input"]["dataset_keys"] for call in _cosmology_likelihood_run_calls_from_prompt(anaphoric)]
+    # One call carrying the overlapping releases together (the pre-existing
+    # "combine them" key selection also adds the DR2 release; the point here
+    # is that nothing gets split into separate legs).
+    assert len(anaphoric_legs) == 1, anaphoric_legs
+    assert {"desi_dr1_bao", "sdss_6df_bao"} <= set(anaphoric_legs[0]), anaphoric_legs
+    # ... but a negated anaphora, or an intervening alternative cue, does not.
+    assert _explicit_joint_request("Run DESI and pre-DESI BAO; do not combine them.") is False
+    assert _explicit_joint_request(
+        "Run DESI and pre-DESI BAO as alternatives; combine each with Planck CMB."
+    ) is False
 

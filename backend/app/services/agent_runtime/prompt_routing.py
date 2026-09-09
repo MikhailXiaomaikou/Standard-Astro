@@ -3243,34 +3243,46 @@ def _cosmology_dataset_groups_from_prompt(
 
 def _explicit_joint_request(text: str) -> bool:
     """True only when the prompt asks for the two overlapping BAO releases to
-    be run TOGETHER: a clause that names both DESI and pre-DESI and carries a
-    non-negated joint word (combine/jointly/together/joint fit) without an
-    alternative cue (alternatives/separately/each/either/instead).  A joint
-    word elsewhere in the prompt ("each combined with Planck CMB") does not
-    override the alternative reading (Codex review on #81, rounds 2 and 4).
-    Such a request must reach the runner as one call so it can reject and
-    explain the invalid overlap instead of being rewritten into legs."""
+    be run TOGETHER.  A clause counts when it carries a non-negated joint word
+    (combine/jointly/together/joint fit) and either names both DESI and
+    pre-DESI itself or refers back to them anaphorically ("combine them",
+    "fit both jointly") after a clause that named the pair — provided no
+    alternative cue (alternatives/separately/each/either/instead/versus) has
+    intervened.  A joint word that joins something else ("each combined with
+    Planck CMB") does not override the alternative reading (Codex review on
+    #81, rounds 2, 4 and 5).  Such a request must reach the runner as one call
+    so it can reject and explain the invalid overlap instead of being
+    rewritten into legs."""
     prompt = str(text or "").lower()
+    alternative_cue = re.compile(
+        r"\b(?:alternatives?|alternatively|separately|independently|each|either|instead|versus|vs\.?)\b"
+    )
+    joint_word = re.compile(
+        r"\b(?:combine|combining|combined|jointly|together|joint\s+(?:fit|run|analysis))\b"
+    )
+    anaphora = re.compile(
+        r"\b(?:them|both|these|those|the\s+two|the\s+datasets?|the\s+releases|the\s+samples|the\s+pair)\b"
+    )
+    negated = re.compile(
+        r"\b(?:do\s+not|don't|never|must\s+not|should\s+not|shouldn't|"
+        r"cannot|can't|without|instead\s+of)(?:\s+ever)?\s*$"
+    )
+    pair_named_recently = False
     for clause in re.split(r"[.;,\n]", prompt):
-        if not re.search(r"\bpre[- ]desi\b", clause):
+        names_pair = bool(
+            re.search(r"\bpre[- ]desi\b", clause)
+            and re.search(r"(?<!pre-)(?<!pre )\bdesi\b", clause)
+        )
+        if alternative_cue.search(clause):
+            pair_named_recently = False
             continue
-        if not re.search(r"(?<!pre-)(?<!pre )\bdesi\b", clause):
+        if names_pair:
+            pair_named_recently = True
+        refers_to_pair = names_pair or (pair_named_recently and bool(anaphora.search(clause)))
+        if not refers_to_pair:
             continue
-        if re.search(
-            r"\b(?:alternatives?|alternatively|separately|independently|each|either|instead|versus|vs\.?)\b",
-            clause,
-        ):
-            continue
-        for match in re.finditer(
-            r"\b(?:combine|combining|combined|jointly|together|joint\s+(?:fit|run|analysis))\b",
-            clause,
-        ):
-            prefix = clause[max(0, match.start() - 40): match.start()]
-            if not re.search(
-                r"\b(?:do\s+not|don't|never|must\s+not|should\s+not|shouldn't|"
-                r"cannot|can't|without|instead\s+of)(?:\s+ever)?\s*$",
-                prefix,
-            ):
+        for match in joint_word.finditer(clause):
+            if not negated.search(clause[max(0, match.start() - 40): match.start()]):
                 return True
     return False
 

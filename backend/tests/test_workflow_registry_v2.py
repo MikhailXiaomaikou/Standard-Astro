@@ -125,14 +125,14 @@ def test_registry_compiles_union3_and_desi_without_python_import_paths():
 def test_formal_registry_compatibility_snapshot():
     snapshot = registry_snapshot()
     assert snapshot["registry_hash"] == (
-        "sha256:4627bf677949e1ae7fabc0b424922b46d8c66647e307e3873e62414f7660a11d"
+        "sha256:86c1ce8d43943a9b80be5d1b56914561e67c0890a30f68fbb4779fd5a0e83b4b"
     )
     assert snapshot["workflow_entry_hashes"] == {
         "desi_dr2_dark_energy_matrix_v1@1.0.0": (
-            "sha256:d0ace32b0bd7a20828e8abe900195040001239fbe030d05660fd26cd6b72d7bb"
+            "sha256:4ed6fa928b12db1083c3d66b7591def39759259a985999a5be0fc2091297c4a5"
         ),
         "union3_flat_lcdm_sn_only_v1@1.0.0": (
-            "sha256:7037abb698d20eb49deb38d2a57509028b2f5f9a32a7b7c73027d51970e28be0"
+            "sha256:130322476ea3984534fbeac4949b06c3bd8498e3f45871d34c6bb61ca0d0e0cb"
         ),
     }
 

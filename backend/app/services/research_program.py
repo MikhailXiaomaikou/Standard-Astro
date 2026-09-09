@@ -2827,6 +2827,20 @@ def _combo_has_declared_overlap(keys: list[str]) -> bool:
     return False
 
 
+def _conflict_free_union(keys: list[str]) -> tuple[list[str], list[str]]:
+    """Greedy, order-preserving partition of ``keys`` into a subset with no
+    declared ``do_not_combine_with`` pair (first mention wins) and the keys
+    dropped to achieve it."""
+    kept: list[str] = []
+    dropped: list[str] = []
+    for key in keys:
+        if _combo_has_declared_overlap(kept + [key]):
+            dropped.append(key)
+        else:
+            kept.append(key)
+    return kept, dropped
+
+
 def _proposed_experiment_matrix(dataset_keys: list[str], models: list[str], text: str) -> list[dict[str, Any]]:
     keys = _clean_dataset_keys(dataset_keys)
     if not keys:
@@ -2918,7 +2932,12 @@ def _proposed_experiment_matrix(dataset_keys: list[str], models: list[str], text
         # cell — skipping the upgrade there left the canonical baseline at
         # the mercy of the importance-ESS seed lottery (live: ESS 66 →
         # blocked → every comparison invalidated).
-        union_marker = tuple(sorted(matrix_keys))
+        # Branch cells run on the dataset union — minus any key that declares
+        # overlap with an earlier one (Codex review on #81): a union holding a
+        # declared pair would be blocked unconditionally, defeating every
+        # comparison. The dropped keys are recorded on the cells.
+        branch_keys, dropped_keys = _conflict_free_union(matrix_keys)
+        union_marker = tuple(sorted(branch_keys))
         anchored_cell: dict[str, Any] | None = None
         for cell in matrix:
             if tuple(sorted(cell.get("dataset_keys") or [])) == union_marker:
@@ -2935,7 +2954,7 @@ def _proposed_experiment_matrix(dataset_keys: list[str], models: list[str], text
         else:
             branch_cells.append({
                 "label": "ΛCDM baseline — all selected probes (comparison anchor)",
-                "dataset_keys": matrix_keys,
+                "dataset_keys": branch_keys,
                 "model": baseline_model,
                 "baseline_only": True,
                 "comparison_anchor": True,
@@ -2943,10 +2962,15 @@ def _proposed_experiment_matrix(dataset_keys: list[str], models: list[str], text
         for model in extended_models:
             branch_cells.append({
                 "label": f"Requested {model} branch",
-                "dataset_keys": matrix_keys,
+                "dataset_keys": branch_keys,
                 "model": model,
                 "requested_model_branch": True,
             })
+        if dropped_keys:
+            for cell in branch_cells:
+                # Registry-identifier key (skipped by the claim validator's
+                # numeric harvest) naming what was left out and why.
+                cell["known_overlap"] = list(dropped_keys)
         # Branch cells go FIRST: they answer the question being asked, and the
         # frontend chart payloads truncate long matrices from the tail.
         matrix = branch_cells + matrix

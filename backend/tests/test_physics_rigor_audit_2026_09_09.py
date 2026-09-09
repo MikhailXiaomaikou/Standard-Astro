@@ -119,3 +119,26 @@ def test_importance_runs_do_not_carry_emcee_autocorr_fields_as_true():
     assert d["ess_source"] == "importance_weights"
     assert d["ess_verified"] is True
     assert d["autocorr_estimate_reliable"] is None
+
+
+def test_unreliable_autocorr_estimate_marks_ess_unverified(monkeypatch):
+    """Codex review on #81: an emcee ESS whose autocorrelation time rests on
+    walkers shorter than the required chain length is explicitly unreliable
+    and must not be reported as verified (flag + named gate reason)."""
+    from app.services.cosmology_likelihoods import sampling as sampling_mod
+
+    monkeypatch.setattr(sampling_mod, "_EMCEE_AUTOCORR_RELIABLE_CHAIN_LENGTHS", 1e9)
+    r = cl._run_sampling_likelihood_chain(
+        model_key="lcdm", entries=[cl.get_cosmology_dataset("union3")],
+        priors=None, seed=42, sample_count=1500, allow_emcee_fallback=True,
+    )
+    d = r["chain_diagnostics"]
+    assert r["sampler"] == "sn_emcee"
+    assert d["autocorr_estimate_reliable"] is False
+    assert d["ess_verified"] is False
+    assert d["proposal_ess"] is not None  # the estimate itself is still reported
+    assert "effective_sample_size_unverified" in r["publication_gate"]["reasons"]
+    assert r["publication_ready"] is False
+    assert r["chain_tier"] == "exploratory"
+    assert any("optimistic estimate" in w for w in r["warnings"])
+

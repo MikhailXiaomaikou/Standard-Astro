@@ -488,6 +488,10 @@ def _run_sampling_likelihood_chain(
                 f"(emcee recommends >= {_EMCEE_AUTOCORR_RELIABLE_CHAIN_LENGTHS:.0f}); "
                 "the reported ESS is an optimistic estimate, not a verified one."
             )
+    # A verified ESS is one that was measured AND, for emcee, rests on an
+    # autocorrelation time emcee itself would trust (Codex review on #81: an
+    # explicitly unreliable estimate must not be reported as verified).
+    ess_verified = (not ess_unknown) and (autocorr_reliable is not False)
 
     cov_fidelity, artifact_sha256, fidelity_ok = _finalize_cov_fidelity(
         bao_entries + cc_entries + rsd_entries + fsbao_entries + dr12_entries + grid_bao_entries + sn_entries + des_sn_entries + compressed_entries, warnings
@@ -546,7 +550,7 @@ def _run_sampling_likelihood_chain(
         "prior_dominance_screen_failed" if not prior_dominance["screen_passed"] else None,
         # 2026-09-09 audit (B2): an unverified ESS is named explicitly so no
         # consumer can mistake "not measured" for "measured and fine".
-        "effective_sample_size_unverified" if ess_unknown else None,
+        "effective_sample_size_unverified" if not ess_verified else None,
     ):
         if reason and reason not in publication_gate["reasons"]:
             publication_gate["reasons"].append(reason)
@@ -578,7 +582,9 @@ def _run_sampling_likelihood_chain(
     # named publication-gate reason (effective_sample_size_unverified), a
     # warning, chain_diagnostics.ess_source="autocorr_failed" and
     # chain_diagnostics.ess_verified=False, and compute_model_comparison fails
-    # closed on it (2026-06-12 honesty review; 2026-09-09 audit B2).
+    # closed on it (2026-06-12 honesty review; 2026-09-09 audit B2).  The same
+    # reason and flag fire when an emcee estimate exists but rests on walkers
+    # shorter than 50 autocorrelation times (autocorr_estimate_reliable=False).
     preliminary_ready = (
         preliminary_data_safe
         and not invalid_specs
@@ -714,7 +720,7 @@ def _run_sampling_likelihood_chain(
                 )
             ),
             "proposal_ess": None if ess_unknown else round(proposal_ess, 3),
-            "ess_verified": not ess_unknown,
+            "ess_verified": ess_verified,
             "autocorr_chain_length_in_tau": (
                 None if autocorr_chain_lengths is None else round(autocorr_chain_lengths, 2)
             ),

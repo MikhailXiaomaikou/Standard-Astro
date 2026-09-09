@@ -473,6 +473,37 @@ def run_research_matrix(
         and str(c.get("model") or "") in _PHASE1_RUNNABLE_MODELS
         and str(c.get("model") or "") != "lcdm"
     }
+    # The emcee budget is spent on COMPLETE matched pairs (Codex review on
+    # #81, round 11): overlap partitioning can yield several legs, each with
+    # an lcdm anchor and its extended branch(es) on the same union. Granting
+    # the last slot to a leg's anchor while its branch ran importance-only
+    # would leave that comparison half-upgraded, and the extended half is
+    # exactly the collapse-prone one. A pair therefore takes its slots
+    # together or not at all; unpaired emcee cells keep single-slot budgeting.
+    lcdm_cell_unions = {
+        tuple(sorted(_clean_dataset_keys(c.get("dataset_keys") or [])))
+        for c in matrix
+        if isinstance(c, dict) and str(c.get("model") or "") == "lcdm"
+    }
+    pair_emcee_slots: dict[tuple[str, ...], int] = {}
+    for c in matrix:
+        if not isinstance(c, dict):
+            continue
+        union = tuple(sorted(_clean_dataset_keys(c.get("dataset_keys") or [])))
+        c_model = str(c.get("model") or "")
+        if union in extended_cell_unions and union in lcdm_cell_unions:
+            if c_model in _PHASE1_RUNNABLE_MODELS and c_model != "lcdm":
+                pair_emcee_slots.setdefault(union, 1)
+    for union in pair_emcee_slots:
+        pair_emcee_slots[union] = 1 + len({
+            str(c.get("model") or "")
+            for c in matrix
+            if isinstance(c, dict)
+            and tuple(sorted(_clean_dataset_keys(c.get("dataset_keys") or []))) == union
+            and str(c.get("model") or "") in _PHASE1_RUNNABLE_MODELS
+            and str(c.get("model") or "") != "lcdm"
+        })
+    pair_emcee_granted: dict[tuple[str, ...], bool] = {}
     for index, cell in enumerate(matrix):
         cell_datasets = _clean_dataset_keys(cell.get("dataset_keys") if isinstance(cell, dict) else [])
         if not cell_datasets:
@@ -626,11 +657,21 @@ def run_research_matrix(
                 or bool(cell.get("comparison_anchor"))
                 or cell_key[1] in extended_cell_unions
             )
-            emcee_budget_hit = wants_emcee and emcee_cell_count >= _MATRIX_MAX_EMCEE_CELLS
+            paired_cell = wants_emcee and cell_key[1] in pair_emcee_slots
+            if paired_cell:
+                if cell_key[1] not in pair_emcee_granted:
+                    slots = pair_emcee_slots[cell_key[1]]
+                    granted = emcee_cell_count + slots <= _MATRIX_MAX_EMCEE_CELLS
+                    pair_emcee_granted[cell_key[1]] = granted
+                    if granted:
+                        emcee_cell_count += slots
+                emcee_budget_hit = not pair_emcee_granted[cell_key[1]]
+            else:
+                emcee_budget_hit = wants_emcee and emcee_cell_count >= _MATRIX_MAX_EMCEE_CELLS
+                if wants_emcee and not emcee_budget_hit:
+                    emcee_cell_count += 1
             if emcee_budget_hit:
                 emcee_capped_cells += 1
-            if wants_emcee and not emcee_budget_hit:
-                emcee_cell_count += 1
             run = run_likelihood_chain(
                 model=model,
                 dataset_keys=cell_datasets,
@@ -668,6 +709,11 @@ def run_research_matrix(
                     *(
                         [
                             "Matrix emcee budget reached; this cell ran importance-only and its diagnostics may be degraded."
+                            + (
+                                " Its matched ΛCDM/extended comparison pair ran importance-only together so the comparison stays like-for-like."
+                                if paired_cell
+                                else ""
+                            )
                         ]
                         if emcee_budget_hit
                         else []
@@ -777,7 +823,8 @@ def run_research_matrix(
                 [
                     f"{emcee_capped_cells} cell(s) ran importance-only (diagnostics may "
                     f"be degraded) because the {_MATRIX_MAX_EMCEE_CELLS}-cell emcee "
-                    "budget was reached."
+                    "budget was reached; matched ΛCDM/extended pairs share that fate "
+                    "as a unit."
                 ]
                 if emcee_capped_cells
                 else []
@@ -4214,7 +4261,9 @@ _PHASE1_RUNNABLE_MODELS = ("lcdm", "wcdm", "w0wa_cdm")
 # runner bounds its own work: at most this many numerically-run cells, and at
 # most this many emcee-upgraded cells (~13 s each; the 120 s tool deadline in
 # chat.py is sized as ~26 s of importance baselines + 3 × ~13 s emcee + cold
-# import headroom).
+# import headroom). The emcee slots are granted to matched ΛCDM/extended
+# pairs as a unit, so one leg's comparison is fully upgraded rather than two
+# legs each half-upgraded.
 _MATRIX_MAX_RUN_CELLS = 24
 _MATRIX_MAX_EMCEE_CELLS = 3
 

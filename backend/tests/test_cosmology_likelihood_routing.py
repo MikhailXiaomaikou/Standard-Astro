@@ -3343,4 +3343,21 @@ def test_explicit_joint_desi_and_pre_desi_request_stays_one_call_for_the_runner_
     negated_legs = [call["input"]["dataset_keys"] for call in _cosmology_likelihood_run_calls_from_prompt(negated_separate)]
     assert len(negated_legs) == 1 and {"desi_dr1_bao", "sdss_6df_bao"} <= set(negated_legs[0]), negated_legs
     assert _explicit_joint_request("Run DESI and pre-DESI BAO jointly, not separately.") is True
+    # A negation reaches only its own phrase (round 7): negating a different
+    # dataset, or the separate cue, before "but" leaves the joint word positive.
+    for contrastive in (
+        "Do not use CMB but combine DESI and pre-DESI BAO in one joint fit.",
+        "Do not run DESI and pre-DESI BAO separately but combine them in one joint fit.",
+        "Run DESI and pre-DESI BAO without CMB but rather combine them in a joint fit.",
+    ):
+        assert _explicit_joint_request(contrastive) is True, contrastive
+        contrastive_legs = [
+            call["input"]["dataset_keys"] for call in _cosmology_likelihood_run_calls_from_prompt(contrastive)
+        ]
+        assert len(contrastive_legs) == 1, (contrastive, contrastive_legs)
+        assert {"desi_dr1_bao", "sdss_6df_bao"} <= set(contrastive_legs[0]), (contrastive, contrastive_legs)
+    # ... while a negator AFTER the conjunction still governs the cue it precedes.
+    assert _explicit_joint_request("Run DESI and pre-DESI BAO but do not combine them.") is False
+    assert _explicit_joint_request("Run DESI and pre-DESI BAO but never jointly.") is False
+    assert _explicit_joint_request("Run DESI and pre-DESI BAO jointly but not separately.") is True
 

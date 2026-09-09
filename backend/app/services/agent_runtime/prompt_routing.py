@@ -3250,10 +3250,12 @@ def _explicit_joint_request(text: str) -> bool:
     non-negated alternative cue (alternatives/separately/each/either/instead/
     versus) has intervened.  "Do not run them separately" is a negated cue and
     keeps the pair in scope; "each combined with Planck CMB" joins something
-    else and does not override the alternative reading (Codex review on #81,
-    rounds 2, 4, 5 and 6).  Such a request must reach the runner as one call
-    so it can reject and explain the invalid overlap instead of being
-    rewritten into legs."""
+    else and does not override the alternative reading; a negation only
+    reaches the cues in its own phrase, so "do not use CMB but combine them"
+    and "do not run them separately but combine them" are joint requests
+    (Codex review on #81, rounds 2, 4, 5, 6 and 7).  Such a request must
+    reach the runner as one call so it can reject and explain the invalid
+    overlap instead of being rewritten into legs."""
     prompt = str(text or "").lower()
     alternative_cue = re.compile(
         r"\b(?:alternatives?|alternatively|separately|independently|each|either|instead|versus|vs\.?)\b"
@@ -3264,15 +3266,28 @@ def _explicit_joint_request(text: str) -> bool:
     anaphora = re.compile(
         r"\b(?:them|both|these|those|the\s+two|the\s+datasets?|the\s+releases|the\s+samples|the\s+pair)\b"
     )
-    # A negation anywhere earlier in the clause flips the cue that follows it
-    # ("do not run ... separately", "without combining them", "never jointly").
+    # A negation flips the cues that follow it in its own phrase ("do not run
+    # ... separately", "without combining them", "never jointly").  A
+    # contrastive conjunction closes that phrase: after "but"/"rather"/
+    # "however"/"yet"/"whereas" the instruction is positive again, so "do not
+    # use CMB but combine them" and "do not run them separately but combine
+    # them" keep their joint word (Codex review on #81, round 7).  The LAST
+    # negator before the cue governs, so "run them but do not combine them"
+    # is still negated.
     negation = re.compile(
         r"\b(?:do\s+not|don't|never|must\s+not|should\s+not|shouldn't|cannot|can't|"
         r"not|no|without|instead\s+of|rather\s+than)\b"
     )
+    negation_scope_end = re.compile(r"\b(?:but|rather|however|yet|whereas)\b")
 
     def _negated(clause: str, position: int) -> bool:
-        return bool(negation.search(clause[:position]))
+        prefix = clause[:position]
+        last_negator = None
+        for match in negation.finditer(prefix):
+            last_negator = match
+        if last_negator is None:
+            return False
+        return negation_scope_end.search(prefix, last_negator.end()) is None
 
     pair_named_recently = False
     for clause in re.split(r"[.;,\n]", prompt):

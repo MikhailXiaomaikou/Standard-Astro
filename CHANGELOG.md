@@ -8,6 +8,47 @@ need entries unless they change user-visible behavior or research validity.
 
 ## Unreleased
 
+### Physics-rigor audit fixes (2026-09-09)
+
+- CMB distance-prior kernel: pinned the CHW2019 compression recipe. The
+  Hu-Sugiyama decoupling fit now uses the published g1 prefactor 0.0783 (a
+  0.0738 transcription slip had shifted z* by -1.3), and the Planck-baseline
+  0.06 eV neutrino is excluded from the pressureless matter term of the
+  sound-horizon integral (it is still relativistic at z*). At the Planck 2018
+  TT,TE,EE+lowE means the kernel now reproduces Table I to -0.15σ in l_A
+  (previously +0.9σ); the regression test and benchmark tolerate one third of
+  the published error at both Planck base-ΛCDM columns. Implied ΛCDM H0 from
+  BAO+CMB moves by about -0.04 km/s/Mpc.
+- Registry: declared the SDSS MGS overlaps (`sdss_6df_bao` ↔ `eboss_dr16_rsd`,
+  `sdss_6df_bao` ↔ DESI DR1/DR2, `eboss_dr16_rsd` ↔ DESI DR1/DR2) and made
+  every `do_not_combine_with` edge reciprocal (Union3, SH0ES, TRGB 2019 had
+  one-sided edges); a registry test now enforces reciprocity.
+- Posterior intervals: `hdi_low_94` / `hdi_high_94` / `hdi_94` are now a true
+  94% highest-density interval (shared `posterior_intervals.hdi_interval`,
+  identical to ArviZ) on every runner; several sites had reported the
+  3rd/97th percentiles under the HDI label.
+- BAO+CMB compressed runs declare that r_d is a free flat-prior nuisance
+  parameter not tied to the CMB sound horizon (weaker than the DESI-official
+  calibrated combination, not biased), and are no longer mislabelled BAO-only.
+- Publication gate: an unverified ESS is a named reason
+  (`effective_sample_size_unverified`) with `chain_diagnostics.ess_verified`;
+  emcee runs label whether the autocorrelation estimate rests on walkers at
+  least 50 autocorrelation times long; the prior-dominance screen flags a
+  posterior that merely fills its flat prior (e.g. r_d in BAO-only runs).
+- The pre-registered v03 exploration task file keeps its frozen,
+  sha256-committed registry snapshot; its `do_not_combine_with` lists predate
+  this change and are not edited.
+- Claim validator: the new run diagnostics (`prior_dominance_screen`,
+  `autocorr_chain_length_in_tau`, `__exploratory_warning__` prose), registry
+  identifiers (dataset keys, `do_not_combine_with`, paths) and the
+  `coverage_provenance` digests no longer enter the claimable numeric
+  universe; four red-team corpus cases pin the closed laundering paths.
+- Documentation and labels: cosmology-smoke skill aligned with the real tier
+  semantics; τ prior relabelled as the TT,TE,EE+lowE posterior standing in
+  for lowE; Pantheon+ / DES-SN5YR notes corrected; growth-index accuracy,
+  late-time radiation omission, A_s prior convention, absent w0+wa cut, and
+  walkers-as-chains caveats declared in code.
+
 ### Lightweight verification v0.2 hardening (2026-08-03 → 2026-08-07)
 
 - Added a dark-launched deterministic source-check path for bounded scalar

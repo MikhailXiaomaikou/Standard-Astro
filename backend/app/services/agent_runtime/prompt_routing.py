@@ -2547,6 +2547,23 @@ def _cosmology_dataset_keys_from_prompt(text: str) -> list[str]:
         r"\b(?:not|rather\s+than)\s+desi\b(?![\s_-]*(?:bao\s+)?dr\s*[12]\b)",
         prompt,
     ))
+    # A standalone DESI mention alongside a pre-DESI mention names both
+    # releases even without the literal "DESI or/and pre-DESI" wording
+    # ("a DESI BAO + Planck fit against a pre-DESI BAO + Planck fit"); a
+    # negated DESI ("not DESI", "non-DESI", "rather than DESI") does not
+    # (Codex review on #81, round 12).
+    def _desi_named_positively() -> bool:
+        cleaned = re.sub(r"\b(?:pre|non)[- ]desi\b|\bbefore\s+desi\b", " ", prompt)
+        for match in re.finditer(r"\bdesi\b", cleaned):
+            sentence_start = max(cleaned.rfind(mark, 0, match.start()) for mark in ".;\n") + 1
+            prefix = cleaned[sentence_start:match.start()]
+            if re.search(r"\b(?:not|rather\s+than|without|instead\s+of|than)\s*$", prefix):
+                continue
+            if _prefix_negates(prefix):
+                continue
+            return True
+        return False
+
     desi_or_pre_desi = any(tok in prompt for tok in (
         "desi or pre-desi",
         "desi or pre desi",
@@ -2554,7 +2571,7 @@ def _cosmology_dataset_keys_from_prompt(text: str) -> list[str]:
         "desi/pre desi",
         "desi and pre-desi",
         "desi and pre desi",
-    ))
+    )) or (pre_desi_bao and _desi_named_positively())
     # A bare DESI mention keeps routing to DR1.  DR1/DR2 are mutually
     # incompatible in one likelihood, but explicit separate or with/without
     # comparisons retain both as distinct groups.
@@ -3241,6 +3258,171 @@ def _cosmology_dataset_groups_from_prompt(
     return [keys]
 
 
+def _explicit_joint_request(text: str) -> bool:
+    """True only when the prompt asks for the two overlapping BAO releases to
+    be run TOGETHER.  A clause counts when it carries a non-negated joint word
+    (combine/jointly/together/in combination/in the same fit/simultaneously,
+    see ``joint_word``) and either names both DESI and
+    pre-DESI itself or refers back to them anaphorically ("combine them",
+    "fit both jointly") after a clause that named the pair — provided no
+    non-negated alternative cue (alternatives/separately/each/either/instead/
+    versus) has intervened.  "Do not run them separately" is a negated cue and
+    keeps the pair in scope; "each combined with Planck CMB" joins something
+    else and does not override the alternative reading; a negation only
+    reaches the cues in its own phrase, so "do not use CMB but combine them"
+    and "do not run them separately but combine them" are joint requests;
+    and a clause is first split into comparison arms ("X against Y",
+    "X compared with Y"), so "a joint DESI + Planck fit against a pre-DESI +
+    Planck fit" names the releases in different arms and is a comparison of
+    alternatives, while "the joint DESI and pre-DESI fit against Planck"
+    keeps the pair in one arm (Codex review on #81, rounds 2, 4-7, 10 and
+    12).  Such a request must reach the runner as one call so it can reject
+    and explain the invalid overlap instead of being rewritten into legs."""
+    prompt = str(text or "").lower()
+    alternative_cue = re.compile(
+        r"\b(?:alternatives?|alternatively|separately|independently|each|either|instead|versus|vs\.?)\b"
+    )
+    # Ordinary joint-fit phrasing, not just the literal "combine"/"jointly"
+    # (Codex review on #81, round 10): "in combination", "in the same fit",
+    # "in one/a single run", "simultaneously", "merge/pool/stack them",
+    # "as one dataset", "a joint constraint".
+    joint_word = re.compile(
+        r"\b(?:combined?s?|combining|combination|jointly|joint|together|"
+        r"simultaneous(?:ly)?|concurrently|at\s+once|in\s+one\s+go|"
+        r"merged?|merging|pool(?:ed|ing)?|stack(?:ed|ing)?|concatenat(?:e[sd]?|ing|ion)|"
+        r"(?:in|as|into|within)\s+(?:one|a\s+single|the\s+same|a\s+common|a\s+joint|a\s+combined)\s+"
+        r"(?:fit|run|chain|analysis|likelihood|posterior|constraint|dataset|data\s*set|sample|call))\b"
+    )
+    anaphora = re.compile(
+        r"\b(?:them|both|these|those|the\s+two|the\s+datasets?|the\s+releases|the\s+samples|the\s+pair)\b"
+    )
+    # A negation flips the cues that follow it in its own phrase ("do not run
+    # ... separately", "without combining them", "never jointly").  A
+    # contrastive conjunction closes that phrase: after "but"/"rather"/
+    # "however"/"yet"/"whereas" the instruction is positive again, so "do not
+    # use CMB but combine them" and "do not run them separately but combine
+    # them" keep their joint word (Codex review on #81, round 7).  The LAST
+    # negator before the cue governs, so "run them but do not combine them"
+    # is still negated.
+    negation = re.compile(
+        r"\b(?:do\s+not|don't|never|must\s+not|should\s+not|shouldn't|cannot|can't|"
+        r"not|no|without|instead\s+of|rather\s+than)\b"
+    )
+    negation_scope_end = re.compile(r"\b(?:but|rather|however|yet|whereas)\b")
+
+    def _negated(clause: str, position: int) -> bool:
+        prefix = clause[:position]
+        last_negator = None
+        for match in negation.finditer(prefix):
+            last_negator = match
+        if last_negator is None:
+            return False
+        return negation_scope_end.search(prefix, last_negator.end()) is None
+
+    # Comparison arms: "X against Y" / "X compared with Y" put the two sides
+    # in separate scopes, so a joint cue in one arm cannot join a release
+    # named only in the other (Codex review on #81, round 12).
+    arm_separator = re.compile(
+        r"\b(?:against|compared\s+(?:to|with)|as\s+opposed\s+to|in\s+contrast\s+(?:to|with))\b"
+    )
+    pre_desi = re.compile(r"\bpre[- ]desi\b")
+    standalone_desi = re.compile(r"(?<!pre-)(?<!pre )\bdesi\b")
+
+    pair_named_recently = False
+    for clause in re.split(r"[.;,\n]", prompt):
+        arms = arm_separator.split(clause)
+        pair_arms = [arm for arm in arms if pre_desi.search(arm) and standalone_desi.search(arm)]
+        names_pair = bool(pair_arms)
+        if (
+            not names_pair
+            and len(arms) > 1
+            and any(pre_desi.search(arm) for arm in arms)
+            and any(standalone_desi.search(arm) for arm in arms)
+        ):
+            # The releases sit on opposite sides of a comparison: alternatives.
+            pair_named_recently = False
+            continue
+        if names_pair:
+            pair_named_recently = True
+        positive_alternative = any(
+            not _negated(clause, match.start()) for match in alternative_cue.finditer(clause)
+        )
+        if positive_alternative:
+            pair_named_recently = False
+            continue
+        refers_to_pair = names_pair or (pair_named_recently and bool(anaphora.search(clause)))
+        if not refers_to_pair:
+            continue
+        # The joint cue must sit in the arm that names the pair (or anywhere
+        # in an anaphoric follow-up clause).
+        scopes = pair_arms if names_pair else [clause]
+        for scope in scopes:
+            for match in joint_word.finditer(scope):
+                if not _negated(scope, match.start()):
+                    return True
+    return False
+
+
+def _split_declared_overlaps(groups: list[list[str]]) -> list[list[str]]:
+    """Split a FORCED-RUN group whose members declare each other in the
+    registry's ``do_not_combine_with`` into conflict-free legs (applied to
+    run_cosmology_likelihood_chain pre-execution only; build_cosmology_likelihood
+    configs keep their established grouping and surface the overlap warning).
+
+    "DESI or pre-DESI BAO" routes both desi_dr1_bao and sdss_6df_bao; since the
+    2026-09-09 audit those overlap (SDSS MGS sits inside the DESI BGS
+    footprint), so one joint run would be blocked unconditionally. Keys that
+    conflict with nothing (e.g. the compressed CMB prior) are shared by every
+    leg; conflicting keys are distributed greedily so no leg holds a declared
+    pair. Groups without a declared pair are returned unchanged.
+    """
+    from app.services.cosmology_likelihoods import get_cosmology_dataset
+
+    def _entry(key: str):
+        try:
+            return get_cosmology_dataset(key)
+        except Exception:
+            return None
+
+    def _conflict(a: str, b: str) -> bool:
+        # Only BAO release ALTERNATIVES (DESI vs pre-DESI, the same family the
+        # DR1/DR2 "with and without" logic already treats as separate legs)
+        # are split.  Multiple SN compilations keep their established single
+        # call (the robustness-matrix / SN-set machinery owns that case), and
+        # cross-probe declared overlaps (e.g. act_dr6_lensing alongside the
+        # compressed Planck prior) keep the established routing: one call,
+        # which the runner then blocks with an explicit
+        # overlapping_dataset_combination reason the user can read.
+        ea, eb = _entry(a), _entry(b)
+        if ea is None or eb is None or ea.probe != "bao" or eb.probe != "bao":
+            return False
+        return b in ea.do_not_combine_with or a in eb.do_not_combine_with
+
+    out: list[list[str]] = []
+    for group in groups:
+        contested = [
+            key for key in group
+            if any(_conflict(key, other) for other in group if other != key)
+        ]
+        if not contested:
+            out.append(list(group))
+            continue
+        shared = [key for key in group if key not in contested]
+        legs: list[list[str]] = []
+        for key in contested:
+            for leg in legs:
+                if not any(_conflict(key, member) for member in leg):
+                    leg.append(key)
+                    break
+            else:
+                legs.append([key])
+        for leg in legs:
+            ordered = [key for key in group if key in shared or key in leg]
+            if ordered not in out:
+                out.append(ordered)
+    return out
+
+
 def _cosmology_likelihood_build_calls_from_prompt(text: str) -> list[dict[str, Any]]:
     if _cosmology_requires_dedicated_spectra_likelihood(text):
         return []
@@ -3470,6 +3652,11 @@ def _cosmology_likelihood_run_calls_from_prompt(text: str) -> list[dict[str, Any
             for model in run_models
         ]
     dataset_groups = _cosmology_dataset_groups_from_prompt(text, dataset_keys)
+    if not _explicit_joint_request(text):
+        # "DESI or pre-DESI" style alternatives become separate legs; an
+        # explicit joint request stays one call so the runner can block it
+        # with an overlapping_dataset_combination reason the user can read.
+        dataset_groups = _split_declared_overlaps(dataset_groups)
     return [
         {
             "id": f"auto_cosmo_run_{uuid.uuid4().hex}",

@@ -18,6 +18,8 @@ from typing import Any, Literal
 
 import numpy as np
 
+from app.services.posterior_intervals import hdi_interval
+
 
 CMBRotationExecutionMode = Literal["config_only", "compressed_gaussian"]
 
@@ -336,6 +338,9 @@ def run_cmb_rotation_likelihood(
             "rhat_note": "not applicable (analytic Gaussian, no sampling chains)",
             "ess_bulk": sample_count,
             "ess_source": "exact_gaussian_draws",
+            "ess_verified": True,
+            "autocorr_chain_length_in_tau": None,
+            "autocorr_estimate_reliable": None,
             "n_draws": sample_count,
             "n_chains": 1,
             "thresholds": {"ess_min": 400},
@@ -406,7 +411,7 @@ def _blocked(*, model: str, entries: list[CMBRotationDatasetEntry], seed: int, r
 
 def _summary(samples: np.ndarray) -> dict[str, Any]:
     median = float(np.median(samples))
-    low, high = np.percentile(samples, [3.0, 97.0])
+    low, high = hdi_interval(samples, 0.94)  # true HDI (== ETI for these Gaussian draws)
     return {
         "median": round(median, 8),
         "mean": round(float(np.mean(samples)), 8),

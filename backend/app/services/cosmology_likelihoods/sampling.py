@@ -13,6 +13,8 @@ from typing import Any
 
 import numpy as np
 
+from app.services.posterior_intervals import hdi_interval
+
 from app.services.cosmology_likelihoods.core import (
     CMB_PARAMETER_PRIORS,
     CompressedLikelihoodSpec,
@@ -427,10 +429,27 @@ def _run_sampling_likelihood_chain(
             + ": posterior constraints may be set by caller prior bounds. "
             "Run and attest a prior-sensitivity analysis before interpretation."
         )
-    if (bao_entries or fsbao_entries or dr12_entries or grid_bao_entries) and not any(entry.probe == "cmb" for entry in used_entries):
+    _bao_like = bool(bao_entries or fsbao_entries or dr12_entries or grid_bao_entries)
+    # planck2018_compressed carries probe "cmb_compressed"; the old test for
+    # probe == "cmb" alone mislabelled every BAO+CMB compressed run as BAO-only.
+    _cmb_present = any(entry.probe in ("cmb", "cmb_compressed") for entry in used_entries)
+    if _bao_like and not _cmb_present:
         warnings.append(
             "BAO-only H0 and rd constraints are prior/calibration dependent; "
             "quote Omega_m or H0*rd more strongly than H0 alone."
+        )
+    if _bao_like and _cmb_present and "rd" in parameter_order:
+        # Declared modelling choice (2026-09-09 physics-rigor audit, A3): the
+        # CHW2019 distance priors fix the CMB geometry but the runner never
+        # derives r_d from (ombh2, omegam) — it stays a free flat-prior
+        # nuisance parameter. Conservative (weaker), not biased.
+        warnings.append(
+            "BAO+CMB modelling choice: the sound horizon rd is sampled as a free "
+            "nuisance parameter with a flat prior and is NOT tied to the CMB "
+            "r_s(z*) or to ombh2/omegam. In LCDM H0 is set by the CMB distance "
+            "priors; in wCDM/w0waCDM the BAO absolute scale is therefore looser "
+            "than the DESI-official calibrated BAO+CMB combination (weaker, not "
+            "biased). Do not present this run as a reproduction of that combination."
         )
     if skipped_entries:
         warnings.append(
@@ -455,6 +474,24 @@ def _run_sampling_likelihood_chain(
         warnings.append(
             f"{sampler_used} ESS={proposal_ess:.1f} below publication threshold 400."
         )
+    # emcee autocorrelation reliability (B6): ESS / n_walkers is the per-walker
+    # chain length in units of the longest autocorrelation time.
+    autocorr_chain_lengths: float | None = None
+    autocorr_reliable: bool | None = None
+    if sampler_used in ("compressed_emcee", "sn_emcee") and not ess_unknown:
+        autocorr_chain_lengths = float(proposal_ess) / _emcee_walker_count(len(parameter_order))
+        autocorr_reliable = autocorr_chain_lengths >= _EMCEE_AUTOCORR_RELIABLE_CHAIN_LENGTHS
+        if not autocorr_reliable:
+            warnings.append(
+                f"{sampler_used} autocorrelation-time estimate is based on walkers "
+                f"only ~{autocorr_chain_lengths:.0f} autocorrelation times long "
+                f"(emcee recommends >= {_EMCEE_AUTOCORR_RELIABLE_CHAIN_LENGTHS:.0f}); "
+                "the reported ESS is an optimistic estimate, not a verified one."
+            )
+    # A verified ESS is one that was measured AND, for emcee, rests on an
+    # autocorrelation time emcee itself would trust (Codex review on #81: an
+    # explicitly unreliable estimate must not be reported as verified).
+    ess_verified = (not ess_unknown) and (autocorr_reliable is not False)
 
     cov_fidelity, artifact_sha256, fidelity_ok = _finalize_cov_fidelity(
         bao_entries + cc_entries + rsd_entries + fsbao_entries + dr12_entries + grid_bao_entries + sn_entries + des_sn_entries + compressed_entries, warnings
@@ -511,6 +548,9 @@ def _run_sampling_likelihood_chain(
         "flattened_coupled_emcee_ensemble" if is_flattened_emcee else None,
         "importance_samples_are_not_independent_chains" if not is_flattened_emcee else None,
         "prior_dominance_screen_failed" if not prior_dominance["screen_passed"] else None,
+        # 2026-09-09 audit (B2): an unverified ESS is named explicitly so no
+        # consumer can mistake "not measured" for "measured and fine".
+        "effective_sample_size_unverified" if not ess_verified else None,
     ):
         if reason and reason not in publication_gate["reasons"]:
             publication_gate["reasons"].append(reason)
@@ -535,6 +575,16 @@ def _run_sampling_likelihood_chain(
     # with explicit caveats; blocked is reserved for unverified data, invalid
     # likelihoods, double counting, or a catastrophically underpowered sampler.
     preliminary_data_safe = cov_fidelity not in (None, "unverified")
+    # ess_unknown keeps the exploratory tier deliberately: "blocked" is reserved
+    # for POSITIVE evidence of failure (a measured ESS < 100, unverified data,
+    # an invalid likelihood, double counting), whereas a failed autocorrelation
+    # estimate is absence of evidence.  The state is never hidden: it is a
+    # named publication-gate reason (effective_sample_size_unverified), a
+    # warning, chain_diagnostics.ess_source="autocorr_failed" and
+    # chain_diagnostics.ess_verified=False, and compute_model_comparison fails
+    # closed on it (2026-06-12 honesty review; 2026-09-09 audit B2).  The same
+    # reason and flag fire when an emcee estimate exists but rests on walkers
+    # shorter than 50 autocorrelation times (autocorr_estimate_reliable=False).
     preliminary_ready = (
         preliminary_data_safe
         and not invalid_specs
@@ -670,6 +720,11 @@ def _run_sampling_likelihood_chain(
                 )
             ),
             "proposal_ess": None if ess_unknown else round(proposal_ess, 3),
+            "ess_verified": ess_verified,
+            "autocorr_chain_length_in_tau": (
+                None if autocorr_chain_lengths is None else round(autocorr_chain_lengths, 2)
+            ),
+            "autocorr_estimate_reliable": autocorr_reliable,
             "proposal_draws": int(proposal_draws),
             "n_draws": sample_count,
             "n_chains": 1,
@@ -1157,6 +1212,18 @@ def _draw_gaussian_centered_proposal(
     return samples, log_q
 
 
+# emcee's documented reliability rule for get_autocorr_time: the estimate is
+# trustworthy only once each walker has run for at least ~50 autocorrelation
+# times.  quiet=True below returns the estimate regardless, so the runner
+# labels reliability from ESS / n_walkers = (n_steps - n_burn) / tau_max.
+_EMCEE_AUTOCORR_RELIABLE_CHAIN_LENGTHS = 50.0
+
+
+def _emcee_walker_count(ndim: int) -> int:
+    """Walkers used by _run_emcee_chain for an ndim-dimensional problem."""
+    return max(2 * ndim + 2, 32)
+
+
 def _run_emcee_chain(
     seed: int,
     parameter_order: list[str],
@@ -1193,7 +1260,7 @@ def _run_emcee_chain(
 
     rng = np.random.default_rng(seed)
     ndim = len(parameter_order)
-    n_walkers = max(2 * ndim + 2, 32)
+    n_walkers = _emcee_walker_count(ndim)
     # Burn-in + post-burn budget.  Pantheon+'s χ² has integrated
     # autocorrelation time τ ≈ 25-30 steps, and emcee's documentation
     # recommends ≥ 50τ for trustworthy posterior — i.e. ≥ 1500 post-burn
@@ -1315,6 +1382,11 @@ def _run_emcee_chain(
     # Effective sample size — median across parameters using autocorrelation
     # length when available, else conservative fallback.
     try:
+        # quiet=True: emcee returns its tau estimate even when the chain is
+        # shorter than 50 tau instead of raising AutocorrError.  That estimate
+        # is then a lower bound on tau (an UPPER bound on ESS); the caller
+        # labels it via chain_diagnostics.autocorr_estimate_reliable rather
+        # than silently trusting it (2026-09-09 audit, B6).
         tau = sampler.get_autocorr_time(quiet=True, discard=n_burn)
         n_draws_total = (n_steps - n_burn) * n_walkers
         # get_autocorr_time returns NaN for (near-)zero-variance parameters
@@ -1761,8 +1833,13 @@ def _sanitize_runner_priors(
 
 
 def _posterior_summary(values: np.ndarray) -> dict[str, Any]:
-    hdi_low = round(float(np.percentile(values, 3.0)), 6)
-    hdi_high = round(float(np.percentile(values, 97.0)), 6)
+    # 94% highest-density interval (app.services.posterior_intervals).  Until
+    # 2026-09-09 these fields held the 3rd/97th percentiles — an equal-tailed
+    # interval that the frontend and paper text nevertheless labelled "94%
+    # HDI"; on the skewed w / wa / rd posteriors the two differ visibly.
+    hdi_low_raw, hdi_high_raw = hdi_interval(values, 0.94)
+    hdi_low = round(float(hdi_low_raw), 6)
+    hdi_high = round(float(hdi_high_raw), 6)
     return {
         "mean": round(float(np.mean(values)), 6),
         "std": round(float(np.std(values)), 6),
@@ -1781,6 +1858,11 @@ def _posterior_summary(values: np.ndarray) -> dict[str, Any]:
     }
 
 
+# 94% HDI / prior-width ratio at or above which a posterior is reported as
+# indistinguishable from its flat prior (a uniform posterior gives 0.94).
+_PRIOR_FILLED_HDI_FRACTION = 0.90
+
+
 def _prior_dominance_screen(
     samples: np.ndarray,
     parameter_order: list[str],
@@ -1790,8 +1872,9 @@ def _prior_dominance_screen(
 
     This is deliberately a *screen*, not a substitute for narrow/wide-prior
     reruns.  It catches the dangerous cases that are knowable from one run:
-    caller priors that occupy less than 5% of the supported default domain, or
-    more than 20% of posterior draws lying in the outer 5% of a prior interval.
+    caller priors that occupy less than 5% of the supported default domain,
+    more than 20% of posterior draws lying in the outer 5% of a prior
+    interval, or a 94% HDI spanning >= 90% of the prior (posterior == prior).
     Publication still requires a separately attested prior-sensitivity study.
     """
 
@@ -1807,11 +1890,25 @@ def _prior_dominance_screen(
         default_low, default_high = defaults[name]
         default_width = float(default_high - default_low)
         width_ratio = width / default_width if default_width > 0 else 1.0
+        # 2026-09-09 audit (B4): a posterior that fills the prior box (e.g. rd
+        # in a BAO-only run, where only H0*rd is measured) has ~5% of its mass
+        # in each 5% edge band and so passes the edge test — yet it carries no
+        # information beyond the prior.  A flat posterior has a 94% HDI equal
+        # to 94% of the prior width; a Gaussian narrower than about a quarter
+        # of the box stays below 90%.
+        hdi_low, hdi_high = hdi_interval(values, 0.94)
+        hdi_fraction = (
+            float(hdi_high - hdi_low) / width
+            if width > 0 and math.isfinite(hdi_low) and math.isfinite(hdi_high)
+            else 0.0
+        )
         reasons: list[str] = []
         if width_ratio < 0.05:
             reasons.append("prior_width_below_5pct_supported_domain")
         if max(lower_fraction, upper_fraction) > 0.20:
             reasons.append("posterior_mass_near_prior_boundary")
+        if hdi_fraction >= _PRIOR_FILLED_HDI_FRACTION:
+            reasons.append("posterior_indistinguishable_from_flat_prior")
         if reasons:
             dominated.append(name)
         records[name] = {
@@ -1819,6 +1916,7 @@ def _prior_dominance_screen(
             "prior_width_fraction_of_supported_domain": round(width_ratio, 6),
             "lower_edge_fraction": round(lower_fraction, 6),
             "upper_edge_fraction": round(upper_fraction, 6),
+            "hdi94_width_fraction_of_prior": round(hdi_fraction, 6),
             "status": "flagged" if reasons else "screen_passed",
             "reasons": reasons,
         }

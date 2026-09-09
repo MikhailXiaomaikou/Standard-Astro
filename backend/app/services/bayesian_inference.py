@@ -6,6 +6,8 @@ posterior predictive checks, and model comparison tables.
 
 import logging
 import numpy as np
+
+from app.services.posterior_intervals import hdi_interval
 from typing import Any, Callable
 
 logger = logging.getLogger(__name__)
@@ -203,8 +205,7 @@ def chain_diagnostics(
                 hdi_vals = az.hdi(col, hdi_prob=0.94).tolist()
                 hdi_low, hdi_high = float(hdi_vals[0]), float(hdi_vals[1])
             except Exception:
-                hdi_low = float(np.percentile(col, 3.0))
-                hdi_high = float(np.percentile(col, 97.0))
+                hdi_low, hdi_high = hdi_interval(col, 0.94)
 
             rhat_val = _f(rhat[name])
             ess_bulk_val = _f(ess_bulk[name])
@@ -666,10 +667,9 @@ def kelly07_linmix_fit(
         mean = float(np.mean(samples))
         std = float(np.std(samples))
         median = float(np.median(samples))
-        # 94% HDI ≈ percentile 3..97 for unimodal posteriors; use
-        # arviz when available for tighter HDI on skewed posteriors.
-        hdi_low = float(np.percentile(samples, 3.0))
-        hdi_high = float(np.percentile(samples, 97.0))
+        # True 94% highest-density interval (narrowest window holding 94% of
+        # the draws); coincides with the 3..97 percentiles only when symmetric.
+        hdi_low, hdi_high = hdi_interval(samples, 0.94)
         ess: float | None = None
         rhat: float | None = None
         try:

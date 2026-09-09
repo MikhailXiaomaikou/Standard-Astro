@@ -829,6 +829,12 @@ def run_likelihood_chain(
                 if s8_ess is not None
                 else "exact_gaussian_draws"
             ),
+            # Same keys as the sampling runner (2026-09-09 audit): iid draws
+            # from the truncated Gaussian carry a measured ESS, and there is
+            # no autocorrelation time to label.
+            "ess_verified": True,
+            "autocorr_chain_length_in_tau": None,
+            "autocorr_estimate_reliable": None,
             "prior_sampling": prior_sampling,
             "n_draws": sample_count,
             "n_chains": 1,

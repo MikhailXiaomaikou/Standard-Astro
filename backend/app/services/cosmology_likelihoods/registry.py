@@ -76,7 +76,16 @@ _REGISTRY: dict[str, CosmologyDatasetEntry] = {
                 arxiv="2404.03002",
             ),
         ),
-        notes="Use as BAO-only or combined late-universe distance anchor; requires rd prior or CMB calibration.",
+        notes=(
+            "Use as BAO-only or combined late-universe distance anchor. The "
+            "in-process runner samples r_d as a FREE nuisance parameter (flat "
+            "prior over the supported range) even when planck2018_compressed is "
+            "co-selected: the CHW2019 distance priors fix the CMB geometry "
+            "(R, l_A, ombh2, ns) but never tie r_d to ombh2/omegam, so BAO+CMB "
+            "here is more conservative than the DESI-official calibrated "
+            "combination (weaker, not biased); LCDM H0 still comes from the CMB "
+            "geometry. A BBN or CMB r_d calibration is an explicit extra prior."
+        ),
         do_not_combine_with=(
             "desi_dr2_bao", "sdss_dr12_consensus_bao",
             "eboss_dr16_elg_bao", "eboss_dr16_lyauto_bao", "eboss_dr16_lyxqso_bao",
@@ -86,6 +95,10 @@ _REGISTRY: dict[str, CosmologyDatasetEntry] = {
             # eBOSS z=1.48 QSOs are re-observed by DESI (QSO bin z~1.49); the
             # DESI key papers replace eBOSS QSO rather than co-add.
             "eboss_dr16_qso_fsbao",
+            # SDSS MGS (inside sdss_6df_bao) sits inside the DESI BGS footprint,
+            # and the eboss_dr16_rsd fσ8 tracers are the same BOSS/eBOSS
+            # galaxies DESI re-observes (2026-09-09 audit, reciprocal).
+            "sdss_6df_bao", "eboss_dr16_rsd",
         ),
         cobaya_likelihood="external:desilike.desi_dr1_bao",
         cosmosis_module="likelihood/bao/desi1-dr1/desi1_dr1.py",
@@ -172,7 +185,10 @@ _REGISTRY: dict[str, CosmologyDatasetEntry] = {
         notes=(
             "DESI DR2 (2025) supersedes DR1 as the primary late-universe BAO "
             "distance anchor; it drove the w0waCDM dark-energy preference. Use as "
-            "BAO-only or combined; requires an rd prior or CMB calibration."
+            "BAO-only or combined. r_d is sampled as a FREE nuisance parameter "
+            "in-process even alongside planck2018_compressed (the distance priors "
+            "fix the CMB geometry, not r_d), so BAO+CMB here is weaker than the "
+            "DESI-official calibrated combination, not biased."
         ),
         do_not_combine_with=(
             "desi_dr1_bao", "sdss_dr12_consensus_bao",
@@ -183,6 +199,10 @@ _REGISTRY: dict[str, CosmologyDatasetEntry] = {
             # eBOSS z=1.48 QSOs are re-observed by DESI (QSO bin z~1.49); the
             # DESI key papers replace eBOSS QSO rather than co-add.
             "eboss_dr16_qso_fsbao",
+            # SDSS MGS (inside sdss_6df_bao) sits inside the DESI BGS footprint,
+            # and the eboss_dr16_rsd fσ8 tracers are the same BOSS/eBOSS
+            # galaxies DESI re-observes (2026-09-09 audit, reciprocal).
+            "sdss_6df_bao", "eboss_dr16_rsd",
         ),
         cobaya_likelihood="external:desilike.desi_dr2_bao",
         cosmosis_module="likelihood/bao/desi-dr2/desi_dr2.py",
@@ -273,8 +293,22 @@ _REGISTRY: dict[str, CosmologyDatasetEntry] = {
             "execution_mode 'compressed_gaussian' names the in-process "
             "compressed channel, not the MGS half's statistics (which are "
             "non-Gaussian). Does NOT include the BOSS/eBOSS DR16 "
-            "intermediate-z bins — use desi_dr1_bao for z>0.15 BAO."
+            "intermediate-z bins — use desi_dr1_bao for z>0.15 BAO. "
+            "Overlaps (2026-09-09 audit): the MGS z=0.15 galaxies are the same "
+            "sample whose fσ8 enters eboss_dr16_rsd, and the MGS footprint "
+            "lies inside the DESI BGS footprint (DESI BAO replaces, never "
+            "co-adds, SDSS MGS) — see do_not_combine_with. 6dFGS itself is "
+            "southern-sky and disjoint from DESI, but the entry is indivisible. "
+            "Sound-horizon note: cobaya's sixdf_2011_bao carries r_s/D_V = "
+            "0.336 +/- 0.015 rescaled to D_V/r_d = 3.058 with its own "
+            "EH98->CAMB r_d convention; the Aubourg+2015 value 3.047 used here "
+            "differs by 0.08 sigma — a convention choice, not a data conflict."
         ),
+        # The MGS half shares its galaxies with the eboss_dr16_rsd z=0.15 fσ8
+        # point (BAO post-recon and RSD pre-recon of ONE sample, cross-covariance
+        # not vendored) and its footprint with DESI BGS (DESI key papers replace
+        # SDSS MGS rather than co-add).  Same policy as sdss_dr12_consensus_bao.
+        do_not_combine_with=("eboss_dr16_rsd", "desi_dr1_bao", "desi_dr2_bao"),
         cobaya_likelihood="external:bao.sdss_6df_legacy",
         cosmosis_module="likelihood/bao/sdss_dr16_6df/sdss_6df_bao.py",
         execution_mode="compressed_gaussian",
@@ -399,6 +433,15 @@ _REGISTRY: dict[str, CosmologyDatasetEntry] = {
         do_not_combine_with=(
             "eboss_dr16_lrg_fsbao", "eboss_dr16_qso_fsbao",
             "sdss_dr12_consensus_bao", "eboss_dr16_elg_bao",
+            # MGS z=0.15 fσ8 comes from the same galaxies as the sdss_6df_bao
+            # MGS D_V/r_d point (no vendored cross-covariance).
+            "sdss_6df_bao",
+            # The BOSS/eBOSS LRG, ELG and QSO tracers behind these fσ8 points
+            # are re-observed by DESI over the same sky; DESI key papers replace
+            # SDSS growth/BAO measurements rather than co-add them (the same
+            # partition rationale the registry already applies to every eBOSS
+            # BAO entry vs DESI).
+            "desi_dr1_bao", "desi_dr2_bao",
         ),
         cobaya_likelihood="external:rsd.eboss_dr16_alam21",
         cosmosis_module="likelihood/rsd/eboss_dr16/eboss_dr16_rsd.py",
@@ -846,8 +889,14 @@ _REGISTRY: dict[str, CosmologyDatasetEntry] = {
         ),
         notes=(
             "This key is the SH0ES-calibrated branch. The full runner applies "
-            "the official calibrator selection and Cepheid distances; use a "
-            "separate Pantheon+-only key for an uncalibrated SN-only analysis."
+            "the official calibrator selection and Cepheid distances. No "
+            "uncalibrated Pantheon+-only key is registered (2026-09-09 audit): "
+            "for an SN-only analysis that does not import the SH0ES ladder use "
+            "union3 or des_sn5yr, whose in-process chi2 marginalises the SN "
+            "absolute magnitude. The compressed_likelihood block below is a "
+            "published posterior SUMMARY (context/proposal only, "
+            "execution_level=context_only); the executed path is the full "
+            "1701-SN vector."
         ),
         cobaya_likelihood="external:sn.pantheon_plus",
         cosmosis_module="Pantheon+_Data/5_COSMOLOGY/cosmosis_likelihoods",
@@ -976,7 +1025,7 @@ _REGISTRY: dict[str, CosmologyDatasetEntry] = {
     "des_sn5yr": CosmologyDatasetEntry(
         key="des_sn5yr",
         display_name="DES-SN 5YR",
-        version="DES-SN5YR Release 1 / 2024 cosmology sample",
+        version="DES-SN5YR 2024 cosmology sample (Abbott+2024; vendored bundle from github des-science/DES-SN5YR tag 1.3, Vincenzi+2024 Legacy release)",
         probe="sn",
         z_coverage=(0.025, 1.13),
         status="external_likelihood",
@@ -1220,6 +1269,9 @@ _REGISTRY: dict[str, CosmologyDatasetEntry] = {
                 local_path="data/union3/mag_covmat.txt",
             ),
         ),
+        # Reciprocal of the SN compilations that already exclude Union3: the
+        # samples share hundreds of the same SNe Ia (2026-09-09 audit).
+        do_not_combine_with=("pantheon_plus", "des_sn5yr", "pantheon18"),
     ),
     "planck2018_compressed": CosmologyDatasetEntry(
         key="planck2018_compressed",
@@ -1274,7 +1326,12 @@ _REGISTRY: dict[str, CosmologyDatasetEntry] = {
             "Planck likelihood stack for growth-amplitude inference. Treat the "
             "distance-prior route as compressed-preliminary, not a full-likelihood "
             "constraint. Do NOT co-add with the "
-            "native Planck 2018 stack entries (enforced via do_not_combine_with)."
+            "native Planck 2018 stack entries (enforced via do_not_combine_with). "
+            "BAO+CMB modelling choice (declared 2026-09-09): the distance priors "
+            "fix (R, l_A, ombh2, ns) and the runner never derives r_d from them — "
+            "r_d stays a free flat-prior nuisance parameter, so combined BAO+CMB "
+            "dark-energy constraints are weaker (never biased) relative to the "
+            "DESI-official combination that calibrates r_d from the CMB."
         ),
         cobaya_likelihood="external:planck_2018_distance_prior",
         cosmosis_module="external:planck2018_distance_priors",
@@ -1402,7 +1459,9 @@ _REGISTRY: dict[str, CosmologyDatasetEntry] = {
             "(minutes), gated behind EXTERNAL_COBAYA_ENABLED; the data is vendored "
             "+ sha256-pinned under data/cobaya_packages (clik-free native plik_lite, "
             "~3 MB). High-l alone does not constrain tau, so it is sampled with the "
-            "Planck lowE Gaussian prior tau=0.0544+/-0.0073 (A_planck=1.0+/-0.0025) "
+            "Gaussian prior tau=0.0544+/-0.0073 — the Planck 2018 TT,TE,EE+lowE base-LCDM "
+            "tau posterior (Planck VI Table 2), used as a stand-in for the lowE "
+            "likelihood, not a lowE-only constraint — (A_planck=1.0+/-0.0025) "
             "UNLESS planck_2018_lowl_EE is also selected — then tau is a flat-prior "
             "sampled parameter constrained by the real low-l EE likelihood. Combine "
             "with planck_2018_lowl_TT + planck_2018_lowl_EE for the full clik-free "
@@ -1605,7 +1664,8 @@ _REGISTRY: dict[str, CosmologyDatasetEntry] = {
             "Low-l EE polarization (SimAll, l=2-29) — the measurement that "
             "actually constrains the reionization optical depth tau. When this "
             "entry is selected the runner samples tau with its FLAT prior instead "
-            "of the lowE Gaussian pin tau=0.0544+/-0.0073 (using both would count "
+            "of the Gaussian pin tau=0.0544+/-0.0073 (the TT,TE,EE+lowE posterior "
+            "value standing in for lowE; using both would count "
             "the same data twice). Gated behind EXTERNAL_COBAYA_ENABLED; data "
             "vendored + sha256-pinned (~2 MB). Reproduces -2lnL = 395.52 at the "
             "Planck 2018 base-LCDM best fit (paper value 395.7, arXiv:1907.12875)."
@@ -2319,6 +2379,10 @@ _REGISTRY: dict[str, CosmologyDatasetEntry] = {
         cobaya_likelihood="gaussian:H0=73.04,sigma=1.04",
         cosmosis_module="prior H0 = gaussian 73.04 1.04",
         execution_mode="compressed_gaussian",
+        # Reciprocal of the entries that already exclude SH0ES: pantheon_plus
+        # executes the Pantheon+SH0ES calibrated sample (this prior IS its H0
+        # posterior), and the TRGB/CCHP ladders share the SN Ia rung.
+        do_not_combine_with=("pantheon_plus", "trgb_h0_freedman19", "cchp_h0_freedman24"),
         compressed_likelihood=CompressedLikelihoodSpec(
             parameters=("H0",),
             mean=(73.04,),
@@ -2392,7 +2456,9 @@ _REGISTRY: dict[str, CosmologyDatasetEntry] = {
             approximation="Scalar Gaussian H0 prior; mid-rung distance ladder anchor.",
             statistical_role="external_prior",
         ),
-        do_not_combine_with=("shoes_h0_riess22",),
+        # cchp_h0_freedman24 supersedes this HST-only anchor (same CCHP TRGB
+        # programme); reciprocal of its declaration.
+        do_not_combine_with=("shoes_h0_riess22", "cchp_h0_freedman24"),
     ),
     "cchp_h0_freedman24": CosmologyDatasetEntry(
         key="cchp_h0_freedman24",

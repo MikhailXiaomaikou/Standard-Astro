@@ -3256,3 +3256,137 @@ def test_exclusion_survives_later_neutral_mention() -> None:
         "Do not run DESI DR1 and Pantheon separately; "
         "then combine them in LCDM."
     ) == [["desi_dr1_bao", "pantheon_plus"]]
+
+
+def test_desi_or_pre_desi_bao_runs_as_separate_legs_not_one_blocked_joint() -> None:
+    """2026-09-09 audit follow-up: desi_dr1_bao and sdss_6df_bao now declare
+    each other in do_not_combine_with (SDSS MGS lies inside the DESI BGS
+    footprint), so the "DESI or pre-DESI" selection must become two run legs —
+    one joint call would be blocked unconditionally. Keys that conflict with
+    nothing are shared by every leg."""
+    from app.api.chat import _cosmology_likelihood_run_calls_from_prompt
+    from app.services.agent_runtime.prompt_routing import _split_declared_overlaps
+    from app.services.cosmology_likelihoods import get_cosmology_dataset
+
+    prompt = (
+        "I am doing a BAO-only distance-ratio check without CMB calibration or H0 prior. "
+        "Use DESI or pre-DESI BAO products as appropriate, and do not infer absolute H0 "
+        "without rd calibration."
+    )
+    calls = _cosmology_likelihood_run_calls_from_prompt(prompt)
+    legs = [call["input"]["dataset_keys"] for call in calls]
+    assert ["desi_dr1_bao"] in legs and ["sdss_6df_bao"] in legs, legs
+    for leg in legs:
+        for i, left in enumerate(leg):
+            for right in leg[i + 1:]:
+                assert right not in get_cosmology_dataset(left).do_not_combine_with, leg
+                assert left not in get_cosmology_dataset(right).do_not_combine_with, leg
+    # Shared, non-conflicting partners ride along on every leg.
+    assert _split_declared_overlaps([["desi_dr1_bao", "sdss_6df_bao", "planck2018_compressed"]]) == [
+        ["desi_dr1_bao", "planck2018_compressed"],
+        ["sdss_6df_bao", "planck2018_compressed"],
+    ]
+    assert _split_declared_overlaps([["desi_dr1_bao", "planck2018_compressed"]]) == [
+        ["desi_dr1_bao", "planck2018_compressed"],
+    ]
+
+
+def test_explicit_joint_desi_and_pre_desi_request_stays_one_call_for_the_runner_to_block() -> None:
+    """Codex review on #81: a prompt that explicitly asks to COMBINE the two
+    BAO releases must reach the runner as one call (which then blocks with
+    overlapping_dataset_combination) rather than be rewritten into separate
+    legs that would imply the requested joint fit was performed."""
+    from app.api.chat import _cosmology_likelihood_run_calls_from_prompt
+    from app.services.agent_runtime.prompt_routing import _explicit_joint_request
+
+    prompt = (
+        "Combine DESI and pre-DESI BAO in one joint fit under flat LCDM without "
+        "CMB calibration or H0 prior."
+    )
+    assert _explicit_joint_request(prompt) is True
+    legs = [call["input"]["dataset_keys"] for call in _cosmology_likelihood_run_calls_from_prompt(prompt)]
+    assert legs == [["desi_dr1_bao", "sdss_6df_bao"]], legs
+    # Negated combining is not a joint request.
+    assert _explicit_joint_request("Use DESI or pre-DESI BAO; do not combine them.") is False
+    assert _explicit_joint_request("Run DESI and pre-DESI BAO without combining the datasets.") is False
+    # A joint word that joins something ELSE (each leg with Planck) does not
+    # turn the alternative reading of the two releases into a joint request:
+    # both BAO+CMB legs are produced (Codex review on #81, round 4).
+    alt_prompt = (
+        "Compare DESI and pre-DESI BAO as alternatives, each combined with Planck CMB, "
+        "under flat LCDM."
+    )
+    assert _explicit_joint_request(alt_prompt) is False
+    alt_legs = [call["input"]["dataset_keys"] for call in _cosmology_likelihood_run_calls_from_prompt(alt_prompt)]
+    assert ["desi_dr1_bao", "planck2018_compressed"] in alt_legs, alt_legs
+    assert ["sdss_6df_bao", "planck2018_compressed"] in alt_legs, alt_legs
+    assert not any("desi_dr1_bao" in leg and "sdss_6df_bao" in leg for leg in alt_legs), alt_legs
+    # Anaphoric joint intent across adjacent clauses is preserved (round 5):
+    # "combine them" after the pair was named still means one joint call.
+    anaphoric = "Run DESI and pre-DESI BAO; combine them in one joint fit under flat LCDM."
+    assert _explicit_joint_request(anaphoric) is True
+    anaphoric_legs = [call["input"]["dataset_keys"] for call in _cosmology_likelihood_run_calls_from_prompt(anaphoric)]
+    # One call carrying the overlapping releases together (the pre-existing
+    # "combine them" key selection also adds the DR2 release; the point here
+    # is that nothing gets split into separate legs).
+    assert len(anaphoric_legs) == 1, anaphoric_legs
+    assert {"desi_dr1_bao", "sdss_6df_bao"} <= set(anaphoric_legs[0]), anaphoric_legs
+    # ... but a negated anaphora, or an intervening alternative cue, does not.
+    assert _explicit_joint_request("Run DESI and pre-DESI BAO; do not combine them.") is False
+    assert _explicit_joint_request("Run DESI and pre-DESI BAO; do not run them jointly.") is False
+    assert _explicit_joint_request(
+        "Run DESI and pre-DESI BAO as alternatives; combine each with Planck CMB."
+    ) is False
+    # A NEGATED separate cue keeps the pair in scope (round 6).
+    negated_separate = "Do not run DESI and pre-DESI BAO separately; combine them in one joint fit."
+    assert _explicit_joint_request(negated_separate) is True
+    negated_legs = [call["input"]["dataset_keys"] for call in _cosmology_likelihood_run_calls_from_prompt(negated_separate)]
+    assert len(negated_legs) == 1 and {"desi_dr1_bao", "sdss_6df_bao"} <= set(negated_legs[0]), negated_legs
+    assert _explicit_joint_request("Run DESI and pre-DESI BAO jointly, not separately.") is True
+    # A negation reaches only its own phrase (round 7): negating a different
+    # dataset, or the separate cue, before "but" leaves the joint word positive.
+    for contrastive in (
+        "Do not use CMB but combine DESI and pre-DESI BAO in one joint fit.",
+        "Do not run DESI and pre-DESI BAO separately but combine them in one joint fit.",
+        "Run DESI and pre-DESI BAO without CMB but rather combine them in a joint fit.",
+    ):
+        assert _explicit_joint_request(contrastive) is True, contrastive
+        contrastive_legs = [
+            call["input"]["dataset_keys"] for call in _cosmology_likelihood_run_calls_from_prompt(contrastive)
+        ]
+        assert len(contrastive_legs) == 1, (contrastive, contrastive_legs)
+        assert {"desi_dr1_bao", "sdss_6df_bao"} <= set(contrastive_legs[0]), (contrastive, contrastive_legs)
+    # ... while a negator AFTER the conjunction still governs the cue it precedes.
+    assert _explicit_joint_request("Run DESI and pre-DESI BAO but do not combine them.") is False
+    assert _explicit_joint_request("Run DESI and pre-DESI BAO but never jointly.") is False
+    assert _explicit_joint_request("Run DESI and pre-DESI BAO jointly but not separately.") is True
+    # Ordinary joint-fit synonyms count as joint requests too (round 10).
+    for synonym in (
+        "Fit DESI and pre-DESI BAO in combination under flat LCDM.",
+        "Run DESI and pre-DESI BAO; use them in the same fit.",
+        "Run DESI and pre-DESI BAO simultaneously in one chain.",
+        "Fit DESI and pre-DESI BAO in a single likelihood run.",
+        "Run DESI and pre-DESI BAO under flat LCDM; merge them into one dataset.",
+        "Use DESI and pre-DESI BAO as one joint constraint on H0 rd.",
+    ):
+        assert _explicit_joint_request(synonym) is True, synonym
+        synonym_legs = [call["input"]["dataset_keys"] for call in _cosmology_likelihood_run_calls_from_prompt(synonym)]
+        assert len(synonym_legs) == 1, (synonym, synonym_legs)
+        assert {"desi_dr1_bao", "sdss_6df_bao"} <= set(synonym_legs[0]), (synonym, synonym_legs)
+    assert _explicit_joint_request("Run DESI and pre-DESI BAO; never in the same fit.") is False
+    assert _explicit_joint_request("Fit DESI and pre-DESI BAO, not in combination but as alternatives.") is False
+    # Comparison arms (round 12): a joint cue in one arm does not join a
+    # release named only in the other arm; the two BAO+CMB legs are produced.
+    for arms_prompt in (
+        "Compare a joint DESI BAO + Planck fit against a pre-DESI BAO + Planck fit under flat LCDM.",
+        "Compare a combined DESI BAO + Planck fit compared with a combined pre-DESI BAO + Planck fit under flat LCDM.",
+    ):
+        assert _explicit_joint_request(arms_prompt) is False, arms_prompt
+        arms_legs = [call["input"]["dataset_keys"] for call in _cosmology_likelihood_run_calls_from_prompt(arms_prompt)]
+        assert ["desi_dr1_bao", "planck2018_compressed"] in arms_legs, (arms_prompt, arms_legs)
+        assert ["sdss_6df_bao", "planck2018_compressed"] in arms_legs, (arms_prompt, arms_legs)
+        assert not any("desi_dr1_bao" in leg and "sdss_6df_bao" in leg for leg in arms_legs), (arms_prompt, arms_legs)
+    # ... while a joint cue that relates the two releases inside one arm still counts.
+    assert _explicit_joint_request("Test the joint DESI and pre-DESI BAO fit against Planck alone.") is True
+    assert _explicit_joint_request("Combine DESI and pre-DESI BAO, then compare against Planck.") is True
+

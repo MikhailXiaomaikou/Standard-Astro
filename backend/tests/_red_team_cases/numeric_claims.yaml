@@ -686,3 +686,79 @@ cases:
                 sha256: "52941f00aa11bb22cc33dd44ee55ff6652941f00aa11bb22cc33dd44ee55ff66"
                 size_bytes: 52941
     expect_ok: true
+
+  # ── 2026-09-09 physics-rigor audit follow-up (anti-fabrication review) ──
+  # New diagnostic fields and registry identifiers must never ground a
+  # measurement claim.
+  - name: numeric_in_prior_dominance_screen_not_in_universe
+    description: |
+      prior_dominance_screen.parameters.<p>.hdi94_width_fraction_of_prior (and
+      its edge-fraction siblings) are run diagnostics. Before the subtree skip a
+      fabricated "mean = 0.0889" validated against the rd fraction 0.0889.
+    reply: "The fit gives mean = 0.0889 for the calibration offset."
+    tool_results:
+      - tool: run_cosmology_likelihood_chain
+        result:
+          parameters:
+            H0: {median: 67.64}
+          prior_dominance_screen:
+            screen_passed: true
+            parameters:
+              rd:
+                prior: [130.0, 170.0]
+                hdi94_width_fraction_of_prior: 0.0889
+                lower_edge_fraction: 0.0507
+                upper_edge_fraction: 0.0502
+    expect_ok: false
+
+  - name: numeric_in_chain_diagnostics_autocorr_not_in_universe
+    description: |
+      chain_diagnostics.autocorr_chain_length_in_tau is the emcee chain length
+      in autocorrelation times (sampler health), not a statistic of the data.
+      A fabricated "chi-squared = 64.91" must not validate against it.
+    reply: "The fit gives chi-squared = 64.91 for the joint likelihood."
+    tool_results:
+      - tool: run_cosmology_likelihood_chain
+        result:
+          parameters:
+            H0: {median: 67.64}
+          chain_diagnostics:
+            proposal_ess: 2077.05
+            autocorr_chain_length_in_tau: 64.91
+            autocorr_estimate_reliable: true
+    expect_ok: false
+
+  - name: numeric_in_do_not_combine_with_keys_not_in_universe
+    description: |
+      Registry identifiers ride along in datasets_used; "cchp_h0_freedman24"
+      tokenises to 24 and "pantheon18" to 18. A fabricated host count must not
+      ground on a dataset key.
+    reply: "The ladder uses 24 Cepheid-calibrated hosts."
+    tool_results:
+      - tool: run_cosmology_likelihood_chain
+        result:
+          parameters:
+            H0: {median: 73.04}
+          datasets_used:
+            - key: shoes_h0_riess22
+              do_not_combine_with: [pantheon_plus, trgb_h0_freedman19, cchp_h0_freedman24]
+              recommended_combinations: [pantheon18]
+    expect_ok: false
+
+  - name: numeric_in_coverage_provenance_sha_not_in_universe
+    description: |
+      coverage_provenance.data_product_sha256 / upstream_version are hex
+      digests whose digit runs ("35") validated a fabricated galaxy count; the
+      exact-name sha256 blacklist did not cover these two emitter names.
+    reply: "The sample contains 35 galaxies."
+    tool_results:
+      - tool: run_cosmology_likelihood_chain
+        result:
+          parameters:
+            H0: {median: 73.04}
+          datasets_used:
+            - coverage_provenance:
+                upstream_version: "c447f0fea703fcd0fff57de5000947b5ca81286b"
+                data_product_sha256: "ab35cdef9a35b7d1e2f4a6c8d0b2e4f6a8c0d2e4f6a8b0c2d4e6f8a0b2c4d6e8"
+    expect_ok: false
+

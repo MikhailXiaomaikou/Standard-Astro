@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
 import re
 import uuid
@@ -472,6 +473,37 @@ def run_research_matrix(
         and str(c.get("model") or "") in _PHASE1_RUNNABLE_MODELS
         and str(c.get("model") or "") != "lcdm"
     }
+    # The emcee budget is spent on COMPLETE matched pairs (Codex review on
+    # #81, round 11): overlap partitioning can yield several legs, each with
+    # an lcdm anchor and its extended branch(es) on the same union. Granting
+    # the last slot to a leg's anchor while its branch ran importance-only
+    # would leave that comparison half-upgraded, and the extended half is
+    # exactly the collapse-prone one. A pair therefore takes its slots
+    # together or not at all; unpaired emcee cells keep single-slot budgeting.
+    lcdm_cell_unions = {
+        tuple(sorted(_clean_dataset_keys(c.get("dataset_keys") or [])))
+        for c in matrix
+        if isinstance(c, dict) and str(c.get("model") or "") == "lcdm"
+    }
+    pair_emcee_slots: dict[tuple[str, ...], int] = {}
+    for c in matrix:
+        if not isinstance(c, dict):
+            continue
+        union = tuple(sorted(_clean_dataset_keys(c.get("dataset_keys") or [])))
+        c_model = str(c.get("model") or "")
+        if union in extended_cell_unions and union in lcdm_cell_unions:
+            if c_model in _PHASE1_RUNNABLE_MODELS and c_model != "lcdm":
+                pair_emcee_slots.setdefault(union, 1)
+    for union in pair_emcee_slots:
+        pair_emcee_slots[union] = 1 + len({
+            str(c.get("model") or "")
+            for c in matrix
+            if isinstance(c, dict)
+            and tuple(sorted(_clean_dataset_keys(c.get("dataset_keys") or []))) == union
+            and str(c.get("model") or "") in _PHASE1_RUNNABLE_MODELS
+            and str(c.get("model") or "") != "lcdm"
+        })
+    pair_emcee_granted: dict[tuple[str, ...], bool] = {}
     for index, cell in enumerate(matrix):
         cell_datasets = _clean_dataset_keys(cell.get("dataset_keys") if isinstance(cell, dict) else [])
         if not cell_datasets:
@@ -625,11 +657,21 @@ def run_research_matrix(
                 or bool(cell.get("comparison_anchor"))
                 or cell_key[1] in extended_cell_unions
             )
-            emcee_budget_hit = wants_emcee and emcee_cell_count >= _MATRIX_MAX_EMCEE_CELLS
+            paired_cell = wants_emcee and cell_key[1] in pair_emcee_slots
+            if paired_cell:
+                if cell_key[1] not in pair_emcee_granted:
+                    slots = pair_emcee_slots[cell_key[1]]
+                    granted = emcee_cell_count + slots <= _MATRIX_MAX_EMCEE_CELLS
+                    pair_emcee_granted[cell_key[1]] = granted
+                    if granted:
+                        emcee_cell_count += slots
+                emcee_budget_hit = not pair_emcee_granted[cell_key[1]]
+            else:
+                emcee_budget_hit = wants_emcee and emcee_cell_count >= _MATRIX_MAX_EMCEE_CELLS
+                if wants_emcee and not emcee_budget_hit:
+                    emcee_cell_count += 1
             if emcee_budget_hit:
                 emcee_capped_cells += 1
-            if wants_emcee and not emcee_budget_hit:
-                emcee_cell_count += 1
             run = run_likelihood_chain(
                 model=model,
                 dataset_keys=cell_datasets,
@@ -667,6 +709,11 @@ def run_research_matrix(
                     *(
                         [
                             "Matrix emcee budget reached; this cell ran importance-only and its diagnostics may be degraded."
+                            + (
+                                " Its matched ΛCDM/extended comparison pair ran importance-only together so the comparison stays like-for-like."
+                                if paired_cell
+                                else ""
+                            )
                         ]
                         if emcee_budget_hit
                         else []
@@ -776,7 +823,8 @@ def run_research_matrix(
                 [
                     f"{emcee_capped_cells} cell(s) ran importance-only (diagnostics may "
                     f"be degraded) because the {_MATRIX_MAX_EMCEE_CELLS}-cell emcee "
-                    "budget was reached."
+                    "budget was reached; matched ΛCDM/extended pairs share that fate "
+                    "as a unit."
                 ]
                 if emcee_capped_cells
                 else []
@@ -2811,6 +2859,81 @@ def _is_physical_dark_energy_history_question(prompt: str) -> bool:
     return any(tok in prompt for tok in ("thawing", "emergent", "mirage", "physical dark-energy", "physical dark energy"))
 
 
+def _combo_has_declared_overlap(keys: list[str]) -> bool:
+    """True when any two registered datasets in ``keys`` declare each other
+    in ``do_not_combine_with`` (checked in both directions)."""
+    entries = []
+    for key in keys:
+        try:
+            entries.append(get_cosmology_dataset(key))
+        except Exception:
+            continue
+    for index, left in enumerate(entries):
+        for right in entries[index + 1:]:
+            if right.key in left.do_not_combine_with or left.key in right.do_not_combine_with:
+                return True
+    return False
+
+
+def _conflict_free_partitions(keys: list[str]) -> list[list[str]]:
+    """Split ``keys`` into every maximal leg that holds no declared
+    ``do_not_combine_with`` pair.  Keys that conflict with nothing are shared
+    by every leg.  The contested keys form a conflict graph: each connected
+    component contributes its maximal conflict-free subsets, and the legs are
+    the Cartesian product across components, so independent choices (which
+    SN compilation, which H0 anchor) vary independently instead of being
+    paired once by a greedy colouring (Codex review on #81, round 9).  Legs
+    and their members keep the input order; a conflict-free input is
+    returned as a single leg."""
+    contested = [
+        key for key in keys
+        if any(_combo_has_declared_overlap([key, other]) for other in keys if other != key)
+    ]
+    if not contested:
+        return [list(keys)]
+    shared = [key for key in keys if key not in contested]
+    conflicts = {
+        key: {other for other in contested if other != key and _combo_has_declared_overlap([key, other])}
+        for key in contested
+    }
+    components: list[list[str]] = []
+    unassigned = list(contested)
+    while unassigned:
+        reached = {unassigned[0]}
+        frontier = [unassigned[0]]
+        while frontier:
+            node = frontier.pop()
+            for neighbour in conflicts[node]:
+                if neighbour not in reached:
+                    reached.add(neighbour)
+                    frontier.append(neighbour)
+        components.append([key for key in contested if key in reached])
+        unassigned = [key for key in unassigned if key not in reached]
+
+    def _maximal_conflict_free_subsets(nodes: list[str]) -> list[list[str]]:
+        found: list[list[str]] = []
+
+        def _extend(index: int, chosen: list[str]) -> None:
+            if index == len(nodes):
+                left_out = [node for node in nodes if node not in chosen]
+                if all(conflicts[node] & set(chosen) for node in left_out):
+                    found.append(list(chosen))
+                return
+            node = nodes[index]
+            if not (conflicts[node] & set(chosen)):
+                _extend(index + 1, chosen + [node])
+            _extend(index + 1, chosen)
+
+        _extend(0, [])
+        return found
+
+    legs: list[list[str]] = []
+    for choice in itertools.product(*(_maximal_conflict_free_subsets(component) for component in components)):
+        picked = {key for subset in choice for key in subset}
+        legs.append([key for key in keys if key in shared or key in picked])
+    return legs
+
+
 def _proposed_experiment_matrix(dataset_keys: list[str], models: list[str], text: str) -> list[dict[str, Any]]:
     keys = _clean_dataset_keys(dataset_keys)
     if not keys:
@@ -2873,17 +2996,35 @@ def _proposed_experiment_matrix(dataset_keys: list[str], models: list[str], text
     matrix: list[dict[str, Any]] = []
     for label, combo in combos:
         cleaned = _clean_dataset_keys(combo)
-        marker = tuple(cleaned)
-        if not cleaned or marker in seen:
+        if not cleaned:
             continue
-        seen.add(marker)
-        cell_label = f"ΛCDM baseline — {label}" if extended_models or special_model_gap else label
-        matrix.append({
-            "label": cell_label,
-            "dataset_keys": cleaned,
-            "model": baseline_model,
-            "baseline_only": bool(extended_models or special_model_gap),
-        })
+        # A cell whose members declare each other in do_not_combine_with
+        # (e.g. DESI BAO + the eBOSS fσ8 compilation, which re-observes the
+        # same tracers) would be blocked unconditionally by the runner.  It is
+        # partitioned into conflict-free legs rather than dropped (Codex
+        # review on #81, round 8): an H0-anchor selection whose only cell is
+        # the "All selected probes" fallback must not collapse into an empty
+        # matrix that runs nothing, independent anchors included.  Legs that
+        # duplicate an earlier cell (the single-probe legs already cover a
+        # conflicting two-probe combo) are skipped by the marker check.
+        legs = _conflict_free_partitions(cleaned) if _combo_has_declared_overlap(cleaned) else [cleaned]
+        for leg in legs:
+            marker = tuple(leg)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            leg_label = label if len(legs) == 1 else f"{label} — {' + '.join(leg)}"
+            cell_label = f"ΛCDM baseline — {leg_label}" if extended_models or special_model_gap else leg_label
+            cell: dict[str, Any] = {
+                "label": cell_label,
+                "dataset_keys": list(leg),
+                "model": baseline_model,
+                "baseline_only": bool(extended_models or special_model_gap),
+            }
+            excluded = [key for key in cleaned if key not in leg]
+            if excluded:
+                cell["known_overlap"] = excluded
+            matrix.append(cell)
     if extended_models:
         # Comparison anchor (2026-06-12): extended branch cells run on the FULL
         # dataset union, but baseline combos are subsets — without an lcdm cell
@@ -2896,35 +3037,55 @@ def _proposed_experiment_matrix(dataset_keys: list[str], models: list[str], text
         # cell — skipping the upgrade there left the canonical baseline at
         # the mercy of the importance-ESS seed lottery (live: ESS 66 →
         # blocked → every comparison invalidated).
-        union_marker = tuple(sorted(matrix_keys))
-        anchored_cell: dict[str, Any] | None = None
-        for cell in matrix:
-            if tuple(sorted(cell.get("dataset_keys") or [])) == union_marker:
-                cell["comparison_anchor"] = True
-                anchored_cell = cell
-                break
+        # Branch cells run on the dataset union, partitioned into conflict-free
+        # legs (Codex review on #81, rounds 3-4): a union holding a declared
+        # do_not_combine_with pair would be blocked unconditionally, and simply
+        # dropping the later key (e.g. eBOSS fsigma8 from a growth question)
+        # would leave the question unanswerable. Every leg gets its own matched
+        # LCDM anchor + requested-model cells; the keys a leg leaves out are
+        # recorded under known_overlap (a registry-identifier key the claim
+        # validator's numeric harvest skips).
+        legs = _conflict_free_partitions(matrix_keys)
         branch_cells: list[dict[str, Any]] = []
-        if anchored_cell is not None:
-            # Move the anchored stock combo to the front with the branch
-            # cells — the chart payloads truncate from the tail, and hiding
-            # exactly the comparison baseline defeats the anchor's purpose.
-            matrix.remove(anchored_cell)
-            branch_cells.append(anchored_cell)
-        else:
-            branch_cells.append({
-                "label": "ΛCDM baseline — all selected probes (comparison anchor)",
-                "dataset_keys": matrix_keys,
-                "model": baseline_model,
-                "baseline_only": True,
-                "comparison_anchor": True,
-            })
-        for model in extended_models:
-            branch_cells.append({
-                "label": f"Requested {model} branch",
-                "dataset_keys": matrix_keys,
-                "model": model,
-                "requested_model_branch": True,
-            })
+        for leg in legs:
+            excluded = [key for key in matrix_keys if key not in leg]
+            suffix = f" — {' + '.join(leg)}" if len(legs) > 1 else ""
+            leg_marker = tuple(sorted(leg))
+            anchored_cell: dict[str, Any] | None = None
+            for cell in matrix:
+                if tuple(sorted(cell.get("dataset_keys") or [])) == leg_marker:
+                    cell["comparison_anchor"] = True
+                    anchored_cell = cell
+                    break
+            if anchored_cell is not None:
+                # Move the anchored stock combo to the front with the branch
+                # cells — the chart payloads truncate from the tail, and hiding
+                # exactly the comparison baseline defeats the anchor's purpose.
+                matrix.remove(anchored_cell)
+                if excluded:
+                    anchored_cell["known_overlap"] = excluded
+                branch_cells.append(anchored_cell)
+            else:
+                anchor = {
+                    "label": f"ΛCDM baseline — all selected probes (comparison anchor){suffix}",
+                    "dataset_keys": list(leg),
+                    "model": baseline_model,
+                    "baseline_only": True,
+                    "comparison_anchor": True,
+                }
+                if excluded:
+                    anchor["known_overlap"] = excluded
+                branch_cells.append(anchor)
+            for model in extended_models:
+                branch = {
+                    "label": f"Requested {model} branch{suffix}",
+                    "dataset_keys": list(leg),
+                    "model": model,
+                    "requested_model_branch": True,
+                }
+                if excluded:
+                    branch["known_overlap"] = excluded
+                branch_cells.append(branch)
         # Branch cells go FIRST: they answer the question being asked, and the
         # frontend chart payloads truncate long matrices from the tail.
         matrix = branch_cells + matrix
@@ -4100,7 +4261,9 @@ _PHASE1_RUNNABLE_MODELS = ("lcdm", "wcdm", "w0wa_cdm")
 # runner bounds its own work: at most this many numerically-run cells, and at
 # most this many emcee-upgraded cells (~13 s each; the 120 s tool deadline in
 # chat.py is sized as ~26 s of importance baselines + 3 × ~13 s emcee + cold
-# import headroom).
+# import headroom). The emcee slots are granted to matched ΛCDM/extended
+# pairs as a unit, so one leg's comparison is fully upgraded rather than two
+# legs each half-upgraded.
 _MATRIX_MAX_RUN_CELLS = 24
 _MATRIX_MAX_EMCEE_CELLS = 3
 

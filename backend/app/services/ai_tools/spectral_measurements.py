@@ -9,6 +9,7 @@ app.services.ai_tools.
 """
 
 import math
+from app.services.posterior_intervals import equal_tailed_interval, hdi_interval
 import re
 from typing import TYPE_CHECKING, Any
 
@@ -326,13 +327,22 @@ def _subsample_significance_from_betas(
     else:
         tail = float(np.mean(delta > 0))
     tail_probability_two_sided = float(min(1.0, 2.0 * tail))
-    # Central 94% interval overlap (cheap proxy: do the central intervals
-    # overlap?).  Useful as a categorical hint; this is not an HDI.
-    lo1, hi1 = float(np.percentile(beta1, 3)), float(np.percentile(beta1, 97))
-    lo2, hi2 = float(np.percentile(beta2, 3)), float(np.percentile(beta2, 97))
-    overlap = max(0.0, min(hi1, hi2) - max(lo1, lo2))
-    pooled = max(hi1 - lo1, hi2 - lo2, 1e-12)
-    hdi_overlap_frac = overlap / pooled
+    # Interval-overlap proxies (categorical hints only).  Two fields, two
+    # semantics (2026-09-09): central_interval_overlap_fraction keeps its
+    # documented equal-tailed (3rd/97th percentile) meaning, while
+    # hdi_overlap_fraction is now a real 94% highest-density-interval overlap
+    # (it used to be the same percentile pair under the "hdi" name).
+    def _overlap_fraction(lo1: float, hi1: float, lo2: float, hi2: float) -> float:
+        overlap = max(0.0, min(hi1, hi2) - max(lo1, lo2))
+        pooled = max(hi1 - lo1, hi2 - lo2, 1e-12)
+        return overlap / pooled
+
+    central_overlap_frac = _overlap_fraction(
+        *equal_tailed_interval(beta1, 0.94), *equal_tailed_interval(beta2, 0.94)
+    )
+    hdi_overlap_frac = _overlap_fraction(
+        *hdi_interval(beta1, 0.94), *hdi_interval(beta2, 0.94)
+    )
     if tail_probability_two_sided < 0.01:
         interpretation = "significantly_different"
     elif tail_probability_two_sided < 0.05:
@@ -345,10 +355,11 @@ def _subsample_significance_from_betas(
         "delta_beta": round(delta_mean, 6),
         "delta_beta_stderr": round(delta_std, 6),
         "tail_probability_two_sided": round(tail_probability_two_sided, 6),
-        "central_interval_overlap_fraction": round(hdi_overlap_frac, 4),
-        # Deprecated aliases.  Kept so older UI/tests do not break while
-        # callers migrate to the scientifically precise field names above.
+        "central_interval_overlap_fraction": round(central_overlap_frac, 4),
+        # Deprecated alias for tail_probability_two_sided.  Kept so older
+        # UI/tests do not break while callers migrate.
         "p_value": round(tail_probability_two_sided, 6),
+        # True 94% HDI overlap (distinct from the equal-tailed field above).
         "hdi_overlap_fraction": round(hdi_overlap_frac, 4),
         "interpretation": interpretation,
     }

@@ -17,6 +17,14 @@ from app.services.cosmology_likelihoods.core import (
 
 
 
+# Background conventions of the late-time kernels in this module (declared
+# 2026-09-09 audit, A2/A6): E(z)^2 = Ωm(1+z)^3 + Ω_DE ρ_DE(z) with NO radiation
+# term and Ωm taken as the full Planck-convention matter density (baryons +
+# CDM + the 0.06 eV neutrino, matter-like at these redshifts).  Omitting
+# radiation changes D_M by 5e-5 (z=0.5) to 2.3e-4 (z=3) relative — far below
+# any BAO/SN/CC error — so it is a documented choice, not an oversight.  The
+# CMB distance-prior kernel (cmb.py) does carry radiation and its own neutrino
+# split because it integrates to z* ~ 1090; keep the two conventions apart.
 # Cached Gauss-Legendre quadrature nodes/weights (deg=64 trivially exact for
 # the flat-ΛCDM E(z) integrand to << 0.1 mag accuracy over z ∈ [0, 3]).
 _GL64_NODES, _GL64_WEIGHTS = np.polynomial.legendre.leggauss(64)

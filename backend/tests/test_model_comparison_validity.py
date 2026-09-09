@@ -313,6 +313,56 @@ def test_research_matrix_caps_duplicate_and_emcee_cells():
     assert any("emcee budget was reached" in w for w in m["warnings"])
 
 
+def test_research_matrix_spends_emcee_budget_on_complete_pairs():
+    """Codex review on #81 (round 11): overlap partitioning yields several
+    legs, each an lcdm anchor plus its extended branch on the same union.
+    With a 3-slot emcee budget, the old single-slot accounting upgraded the
+    second leg's anchor but not its branch, leaving that comparison
+    half-upgraded (and the collapse-prone half importance-only). The budget
+    is now spent per matched pair: leg 1 gets both slots, leg 2 gets neither,
+    and both halves of leg 2 carry the budget warning."""
+    from unittest.mock import patch
+
+    from app.services import research_program as rp
+
+    calls: list[tuple[str, tuple[str, ...], bool]] = []
+    real_run = rp.run_likelihood_chain
+
+    def spy(**kwargs):
+        calls.append((kwargs["model"], tuple(kwargs["dataset_keys"]), kwargs.get("allow_emcee_fallback", False)))
+        return real_run(**kwargs)
+
+    leg_a = ["desi_dr1_bao", "cosmic_chronometers"]
+    leg_b = ["sdss_6df_bao", "cosmic_chronometers"]
+    plan = {
+        "research_question": "BAO release alternatives under wCDM",
+        "candidate_dataset_keys": ["desi_dr1_bao", "sdss_6df_bao", "cosmic_chronometers"],
+        "model_families": ["lcdm", "wcdm"],
+        "proposed_experiment_matrix": [
+            {"label": "anchor A", "dataset_keys": leg_a, "model": "lcdm", "comparison_anchor": True},
+            {"label": "branch A", "dataset_keys": leg_a, "model": "wcdm", "requested_model_branch": True},
+            {"label": "anchor B", "dataset_keys": leg_b, "model": "lcdm", "comparison_anchor": True},
+            {"label": "branch B", "dataset_keys": leg_b, "model": "wcdm", "requested_model_branch": True},
+        ],
+    }
+    with patch.object(rp, "run_likelihood_chain", side_effect=spy):
+        m = rp.run_research_matrix(research_plan=plan, random_seed=42, n_samples=400)
+    upgrades = {(model, keys): fb for model, keys, fb in calls}
+    assert upgrades[("lcdm", tuple(leg_a))] is True
+    assert upgrades[("wcdm", tuple(leg_a))] is True
+    assert upgrades[("lcdm", tuple(leg_b))] is False
+    assert upgrades[("wcdm", tuple(leg_b))] is False
+    warned = {
+        c["label"] for c in m["matrix"]
+        if any("emcee budget" in str(w) for w in c.get("warnings", []))
+    }
+    assert warned == {"anchor B", "branch B"}, warned
+    for c in m["matrix"]:
+        if c["label"] in warned:
+            assert any("comparison pair ran importance-only together" in str(w) for w in c["warnings"]), c["warnings"]
+    assert any("emcee budget was reached" in w for w in m["warnings"])
+
+
 def test_research_matrix_derives_anchor_for_caller_supplied_plans():
     """Caller/LLM-supplied matrices carry no comparison_anchor flag; the
     executor must derive it (lcdm cell sharing an extended cell's dataset

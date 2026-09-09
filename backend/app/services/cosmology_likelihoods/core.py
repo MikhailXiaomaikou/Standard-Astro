@@ -267,7 +267,11 @@ RUNNER_PARAMETER_PRIORS: dict[str, tuple[float, float]] = {
     "M_B": (-19.7, -18.8),
     # Dark-energy equation of state. Bounds chosen to keep numerical
     # stability of (1+z)^(3(1+w0+wa)) over z ≤ 3 while admitting the
-    # phantom-crossing region that DESI DR1 hinted at.
+    # phantom-crossing region that DESI DR1 hinted at.  No explicit
+    # w0 + wa < 0 (no early dark energy) cut is imposed: corners with
+    # w0 + wa > 0 make ρ_DE grow toward high z and are killed by the CMB
+    # distance-prior chi2 (and the BAO/SN data) rather than by the prior —
+    # a soft, data-driven exclusion, declared here (2026-09-09 audit, A6).
     "w": (-2.5, -0.2),
     "w0": (-2.5, -0.2),
     "wa": (-3.0, 2.0),
@@ -285,6 +289,10 @@ CMB_PARAMETER_PRIORS: dict[str, tuple[float, float]] = {
     "ombh2": (0.019, 0.025),
     "omch2": (0.10, 0.14),
     "ns": (0.92, 1.00),
+    # Flat prior directly on A_s rather than on ln(10^10 A_s) (the Planck
+    # convention). Over this narrow box the two are almost proportional
+    # (ln A_s spans 0.29), so the Jacobian is a <=15% tilt of an already
+    # data-dominated posterior — declared, not silent (2026-09-09 audit, A6).
     "As": (1.8e-9, 2.4e-9),
     "tau": (0.02, 0.10),
     "A_planck": (0.98, 1.02),

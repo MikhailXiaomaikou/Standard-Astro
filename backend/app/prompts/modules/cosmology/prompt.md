@@ -139,6 +139,10 @@ Cobaya YAML in `run_python` to bypass it.
 The Planck compressed path uses the CHW2019 distance prior; its sigma8/S8
 summary values are proposal/context, not growth constraints. Compressed or
 approximate results do not become full-likelihood evidence through renaming.
+In BAO+CMB compressed runs `rd` is a free nuisance parameter, not the
+CMB-derived sound horizon; when the result carries the "BAO+CMB modelling
+choice" warning, state that the dark-energy constraint is looser than the
+DESI-official calibrated combination rather than a reproduction of it.
 
 ### Publication and chain tiers
 

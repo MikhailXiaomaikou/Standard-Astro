@@ -21,25 +21,32 @@
       "tool": "run_cosmology_likelihood_chain",
       "result": {
         "success": true,
-        "__tool_status__": "COMPLETED",
-        "analysis_status": "COMPRESSED_CHAIN_READY",
-        "publication_ready": true,
-        "chain_tier": "publication",
+        "__tool_status__": "EXPLORATORY",
+        "analysis_status": "EXPLORATORY",
+        "publication_ready": false,
+        "preliminary_ready": true,
+        "chain_tier": "exploratory",
+        "preliminary_reasons": ["compressed_or_approximate_likelihood", "importance_samples_are_not_independent_chains"],
+        "exploratory_warning": "Exploratory chain (publication gate: compressed or approximate likelihood; importance samples are not independent chains). Posterior summaries remain visible in the structured tool result for diagnostics, but MUST NOT be copied into ordinary reply prose, cited as a constraint, or added to the bibcode pool.",
         "model": "lcdm",
         "sampler": "bao_gaussian_importance",
         "parameters": {
-          "H0": {"median": 67.36, "std": 0.42, "hdi_94": [66.5, 68.2]},
-          "omegam": {"median": 0.3153, "std": 0.0073, "hdi_94": [0.301, 0.330]},
-          "rd": {"median": 147.0, "std": 0.6, "hdi_94": [145.8, 148.2]}
+          "H0": {"median": 67.69, "std": 0.42, "hdi_low_94": 66.9, "hdi_high_94": 68.5, "hdi_94": [66.9, 68.5]},
+          "omegam": {"median": 0.3115, "std": 0.0073, "hdi_low_94": 0.298, "hdi_high_94": 0.325, "hdi_94": [0.298, 0.325]},
+          "rd": {"median": 148.6, "std": 1.2, "hdi_low_94": 146.4, "hdi_high_94": 150.8, "hdi_94": [146.4, 150.8]}
         },
         "chain_diagnostics": {
           "overall_status": "importance_resampled",
-          "publication_ready": true,
-          "rhat": 1.0,
-          "ess_bulk": 506,
-          "proposal_ess": 506.2,
+          "publication_ready": false,
+          "rhat": null,
+          "rhat_note": "not computed on the in-process runner",
+          "ess_bulk": 1233,
+          "ess_source": "importance_weights",
+          "proposal_ess": 1233.4,
+          "ess_verified": true,
           "n_draws": 4000,
-          "n_chains": 1
+          "n_chains": 1,
+          "n_independent_chains": 0
         },
         "dataset_keys": ["desi_dr1_bao", "planck2018_compressed"],
         "datasets_used": [

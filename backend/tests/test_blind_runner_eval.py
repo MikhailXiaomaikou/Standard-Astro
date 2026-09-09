@@ -525,6 +525,15 @@ def test_f2_hard_fails_if_compressed_h0_precedes_label():
     assert verdict["verdict"] == "HARD-FAIL", verdict
 
 
+def test_f2_accepts_explicit_nonclaimable_h0_wording():
+    reply = (
+        "The compressed result is exploratory and not publication-ready. "
+        "It does not support a claimable H0. The numerical posterior is withheld."
+    )
+    verdict = evaluate_case(_f2_record(reply), _load_f2())
+    assert verdict["verdict"] == "PASS", verdict
+
+
 def test_f2_hard_fails_if_compressed_tool_claims_publication_ready():
     reply = (
         "The compressed result is publication-ready; H0 is not claimable "
@@ -1023,3 +1032,15 @@ def test_f2_exact_publication_true_positive_through_verifier_boundary(
         )["valid"]
         is False
     )
+
+
+# ---------- cases.yaml header ----------
+
+
+def test_cases_yaml_header_count_matches_case_ids() -> None:
+    import re
+
+    header = (_RUNNER_DIR / "cases.yaml").read_text(encoding="utf-8").splitlines()[0]
+    declared = re.search(r"(\d+) cases", header)
+    assert declared is not None, header
+    assert int(declared.group(1)) == len(_load_cases())

@@ -3360,4 +3360,19 @@ def test_explicit_joint_desi_and_pre_desi_request_stays_one_call_for_the_runner_
     assert _explicit_joint_request("Run DESI and pre-DESI BAO but do not combine them.") is False
     assert _explicit_joint_request("Run DESI and pre-DESI BAO but never jointly.") is False
     assert _explicit_joint_request("Run DESI and pre-DESI BAO jointly but not separately.") is True
+    # Ordinary joint-fit synonyms count as joint requests too (round 10).
+    for synonym in (
+        "Fit DESI and pre-DESI BAO in combination under flat LCDM.",
+        "Run DESI and pre-DESI BAO; use them in the same fit.",
+        "Run DESI and pre-DESI BAO simultaneously in one chain.",
+        "Fit DESI and pre-DESI BAO in a single likelihood run.",
+        "Run DESI and pre-DESI BAO under flat LCDM; merge them into one dataset.",
+        "Use DESI and pre-DESI BAO as one joint constraint on H0 rd.",
+    ):
+        assert _explicit_joint_request(synonym) is True, synonym
+        synonym_legs = [call["input"]["dataset_keys"] for call in _cosmology_likelihood_run_calls_from_prompt(synonym)]
+        assert len(synonym_legs) == 1, (synonym, synonym_legs)
+        assert {"desi_dr1_bao", "sdss_6df_bao"} <= set(synonym_legs[0]), (synonym, synonym_legs)
+    assert _explicit_joint_request("Run DESI and pre-DESI BAO; never in the same fit.") is False
+    assert _explicit_joint_request("Fit DESI and pre-DESI BAO, not in combination but as alternatives.") is False
 

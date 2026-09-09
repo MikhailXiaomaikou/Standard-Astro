@@ -3244,7 +3244,8 @@ def _cosmology_dataset_groups_from_prompt(
 def _explicit_joint_request(text: str) -> bool:
     """True only when the prompt asks for the two overlapping BAO releases to
     be run TOGETHER.  A clause counts when it carries a non-negated joint word
-    (combine/jointly/together/joint fit) and either names both DESI and
+    (combine/jointly/together/in combination/in the same fit/simultaneously,
+    see ``joint_word``) and either names both DESI and
     pre-DESI itself or refers back to them anaphorically ("combine them",
     "fit both jointly") after a clause that named the pair — provided no
     non-negated alternative cue (alternatives/separately/each/either/instead/
@@ -3260,8 +3261,16 @@ def _explicit_joint_request(text: str) -> bool:
     alternative_cue = re.compile(
         r"\b(?:alternatives?|alternatively|separately|independently|each|either|instead|versus|vs\.?)\b"
     )
+    # Ordinary joint-fit phrasing, not just the literal "combine"/"jointly"
+    # (Codex review on #81, round 10): "in combination", "in the same fit",
+    # "in one/a single run", "simultaneously", "merge/pool/stack them",
+    # "as one dataset", "a joint constraint".
     joint_word = re.compile(
-        r"\b(?:combine|combining|combined|jointly|together|joint\s+(?:fit|run|analysis))\b"
+        r"\b(?:combined?s?|combining|combination|jointly|joint|together|"
+        r"simultaneous(?:ly)?|concurrently|at\s+once|in\s+one\s+go|"
+        r"merged?|merging|pool(?:ed|ing)?|stack(?:ed|ing)?|concatenat(?:e[sd]?|ing|ion)|"
+        r"(?:in|as|into|within)\s+(?:one|a\s+single|the\s+same|a\s+common|a\s+joint|a\s+combined)\s+"
+        r"(?:fit|run|chain|analysis|likelihood|posterior|constraint|dataset|data\s*set|sample|call))\b"
     )
     anaphora = re.compile(
         r"\b(?:them|both|these|those|the\s+two|the\s+datasets?|the\s+releases|the\s+samples|the\s+pair)\b"

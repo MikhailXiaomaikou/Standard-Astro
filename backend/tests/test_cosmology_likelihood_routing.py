@@ -3375,4 +3375,18 @@ def test_explicit_joint_desi_and_pre_desi_request_stays_one_call_for_the_runner_
         assert {"desi_dr1_bao", "sdss_6df_bao"} <= set(synonym_legs[0]), (synonym, synonym_legs)
     assert _explicit_joint_request("Run DESI and pre-DESI BAO; never in the same fit.") is False
     assert _explicit_joint_request("Fit DESI and pre-DESI BAO, not in combination but as alternatives.") is False
+    # Comparison arms (round 12): a joint cue in one arm does not join a
+    # release named only in the other arm; the two BAO+CMB legs are produced.
+    for arms_prompt in (
+        "Compare a joint DESI BAO + Planck fit against a pre-DESI BAO + Planck fit under flat LCDM.",
+        "Compare a combined DESI BAO + Planck fit compared with a combined pre-DESI BAO + Planck fit under flat LCDM.",
+    ):
+        assert _explicit_joint_request(arms_prompt) is False, arms_prompt
+        arms_legs = [call["input"]["dataset_keys"] for call in _cosmology_likelihood_run_calls_from_prompt(arms_prompt)]
+        assert ["desi_dr1_bao", "planck2018_compressed"] in arms_legs, (arms_prompt, arms_legs)
+        assert ["sdss_6df_bao", "planck2018_compressed"] in arms_legs, (arms_prompt, arms_legs)
+        assert not any("desi_dr1_bao" in leg and "sdss_6df_bao" in leg for leg in arms_legs), (arms_prompt, arms_legs)
+    # ... while a joint cue that relates the two releases inside one arm still counts.
+    assert _explicit_joint_request("Test the joint DESI and pre-DESI BAO fit against Planck alone.") is True
+    assert _explicit_joint_request("Combine DESI and pre-DESI BAO, then compare against Planck.") is True
 

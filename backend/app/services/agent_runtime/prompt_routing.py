@@ -2547,6 +2547,23 @@ def _cosmology_dataset_keys_from_prompt(text: str) -> list[str]:
         r"\b(?:not|rather\s+than)\s+desi\b(?![\s_-]*(?:bao\s+)?dr\s*[12]\b)",
         prompt,
     ))
+    # A standalone DESI mention alongside a pre-DESI mention names both
+    # releases even without the literal "DESI or/and pre-DESI" wording
+    # ("a DESI BAO + Planck fit against a pre-DESI BAO + Planck fit"); a
+    # negated DESI ("not DESI", "non-DESI", "rather than DESI") does not
+    # (Codex review on #81, round 12).
+    def _desi_named_positively() -> bool:
+        cleaned = re.sub(r"\b(?:pre|non)[- ]desi\b|\bbefore\s+desi\b", " ", prompt)
+        for match in re.finditer(r"\bdesi\b", cleaned):
+            sentence_start = max(cleaned.rfind(mark, 0, match.start()) for mark in ".;\n") + 1
+            prefix = cleaned[sentence_start:match.start()]
+            if re.search(r"\b(?:not|rather\s+than|without|instead\s+of|than)\s*$", prefix):
+                continue
+            if _prefix_negates(prefix):
+                continue
+            return True
+        return False
+
     desi_or_pre_desi = any(tok in prompt for tok in (
         "desi or pre-desi",
         "desi or pre desi",
@@ -2554,7 +2571,7 @@ def _cosmology_dataset_keys_from_prompt(text: str) -> list[str]:
         "desi/pre desi",
         "desi and pre-desi",
         "desi and pre desi",
-    ))
+    )) or (pre_desi_bao and _desi_named_positively())
     # A bare DESI mention keeps routing to DR1.  DR1/DR2 are mutually
     # incompatible in one likelihood, but explicit separate or with/without
     # comparisons retain both as distinct groups.
@@ -3253,10 +3270,14 @@ def _explicit_joint_request(text: str) -> bool:
     keeps the pair in scope; "each combined with Planck CMB" joins something
     else and does not override the alternative reading; a negation only
     reaches the cues in its own phrase, so "do not use CMB but combine them"
-    and "do not run them separately but combine them" are joint requests
-    (Codex review on #81, rounds 2, 4, 5, 6 and 7).  Such a request must
-    reach the runner as one call so it can reject and explain the invalid
-    overlap instead of being rewritten into legs."""
+    and "do not run them separately but combine them" are joint requests;
+    and a clause is first split into comparison arms ("X against Y",
+    "X compared with Y"), so "a joint DESI + Planck fit against a pre-DESI +
+    Planck fit" names the releases in different arms and is a comparison of
+    alternatives, while "the joint DESI and pre-DESI fit against Planck"
+    keeps the pair in one arm (Codex review on #81, rounds 2, 4-7, 10 and
+    12).  Such a request must reach the runner as one call so it can reject
+    and explain the invalid overlap instead of being rewritten into legs."""
     prompt = str(text or "").lower()
     alternative_cue = re.compile(
         r"\b(?:alternatives?|alternatively|separately|independently|each|either|instead|versus|vs\.?)\b"
@@ -3298,12 +3319,29 @@ def _explicit_joint_request(text: str) -> bool:
             return False
         return negation_scope_end.search(prefix, last_negator.end()) is None
 
+    # Comparison arms: "X against Y" / "X compared with Y" put the two sides
+    # in separate scopes, so a joint cue in one arm cannot join a release
+    # named only in the other (Codex review on #81, round 12).
+    arm_separator = re.compile(
+        r"\b(?:against|compared\s+(?:to|with)|as\s+opposed\s+to|in\s+contrast\s+(?:to|with))\b"
+    )
+    pre_desi = re.compile(r"\bpre[- ]desi\b")
+    standalone_desi = re.compile(r"(?<!pre-)(?<!pre )\bdesi\b")
+
     pair_named_recently = False
     for clause in re.split(r"[.;,\n]", prompt):
-        names_pair = bool(
-            re.search(r"\bpre[- ]desi\b", clause)
-            and re.search(r"(?<!pre-)(?<!pre )\bdesi\b", clause)
-        )
+        arms = arm_separator.split(clause)
+        pair_arms = [arm for arm in arms if pre_desi.search(arm) and standalone_desi.search(arm)]
+        names_pair = bool(pair_arms)
+        if (
+            not names_pair
+            and len(arms) > 1
+            and any(pre_desi.search(arm) for arm in arms)
+            and any(standalone_desi.search(arm) for arm in arms)
+        ):
+            # The releases sit on opposite sides of a comparison: alternatives.
+            pair_named_recently = False
+            continue
         if names_pair:
             pair_named_recently = True
         positive_alternative = any(
@@ -3315,9 +3353,13 @@ def _explicit_joint_request(text: str) -> bool:
         refers_to_pair = names_pair or (pair_named_recently and bool(anaphora.search(clause)))
         if not refers_to_pair:
             continue
-        for match in joint_word.finditer(clause):
-            if not _negated(clause, match.start()):
-                return True
+        # The joint cue must sit in the arm that names the pair (or anywhere
+        # in an anaphoric follow-up clause).
+        scopes = pair_arms if names_pair else [clause]
+        for scope in scopes:
+            for match in joint_word.finditer(scope):
+                if not _negated(scope, match.start()):
+                    return True
     return False
 
 

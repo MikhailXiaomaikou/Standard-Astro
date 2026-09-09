@@ -1,8 +1,8 @@
 # Standard Astro Architecture
 
-**Current as of 2026-08-07: cosmology-only scope; Provenance v2; research-mode and claim-gate hardening; dark-launched lightweight scalar verification; evidence receipts; and durable posterior-chain exports.** Reflects the actual checked-in code, not an aspirational roadmap. Update when modules, flows, or deployment assumptions materially change.
+**Current as of 2026-09-09: cosmology-only scope; Provenance v2; research-mode and claim-gate hardening; a fixed 13-section research report surfaced in the chat UI (#70); seven zero-caller routers unmounted by default (#54); dark-launched lightweight scalar verification; evidence receipts; and durable posterior-chain exports.** Reflects the actual checked-in code, not an aspirational roadmap. Update when modules, flows, or deployment assumptions materially change.
 
-> **Scope.** This repository is **cosmology-only**. The sole active prompt module is `cosmology`; `ASTRO_RESEARCH_FOCUS` defaults to `cosmology` and any value other than `all` fails closed to it. The solar-system / exoplanet prompt modules and the 12 dormant prompt modules were extracted to `standard-astro-verticals` on 2026-06-03, so `backend/app/prompts/modules/` now contains only `cosmology/`. Their **tool implementations** still live in `backend/app/services/` but are invisible to the LLM because they are outside the cosmology manifest allowlist (81-tool catalog − 61 visible = 20 gated, live-imported 2026-08-07). Counts below come from `scripts/stats.sh` or the equivalent backend-venv live import — run it after any structural change.
+> **Scope.** This repository is **cosmology-only**. The sole active prompt module is `cosmology`; `ASTRO_RESEARCH_FOCUS` defaults to `cosmology` and any value other than `all` fails closed to it. The solar-system / exoplanet prompt modules and the 12 dormant prompt modules were extracted to `standard-astro-verticals` on 2026-06-03, so `backend/app/prompts/modules/` now contains only `cosmology/`. Their **tool implementations** still live in `backend/app/services/` but are invisible to the LLM because they are outside the cosmology manifest allowlist (81-tool catalog − 61 visible = 20 gated, live-imported 2026-09-09). The 20 gated entries are nine non-cosmology analysis tools (photometry, source extraction, isochrone, RV-orbit, Sérsic, pulsar, CCD reduction, astrometry, X-ray spectral fit), the seven paper-tool-mining tools, and `generate_paper_draft`, `generate_pipeline`, `run_pipeline`, `validate_analysis`. Counts below come from `scripts/stats.sh` or the equivalent backend-venv live import — run it after any structural change.
 
 ## 1. System Shape
 
@@ -10,24 +10,24 @@ Standard Astro is a full-stack astronomy research platform with four runtime lay
 
 1. **Frontend SPA** — React 19 + TypeScript (strict) served by Vite. The current route table has 15 directly rendered screen families, including AI Chat, Claim Audit, Workflow Foundry, Research Workspace, Bot Console, Papers, Observations, Team, Account, and shared sessions; legacy Settings, Alert, and Anomaly URLs redirect to their surviving parents. The visual Data Browser, Pipeline Studio, and ADQL pages remain removed; the pipeline DAG engine still exists backend-side.
 
-2. **FastAPI backend** — Single process, 44 domain-router modules (measured 2026-08-07; use `scripts/stats.sh` for the live count). SSE streaming on the chat path, long-poll + WebSocket for collaboration, background workers for pipeline execution.
+2. **FastAPI backend** — Single process, 44 domain-router modules (measured 2026-09-09; use `scripts/stats.sh` for the live count). Seven zero-caller routers — `citation_graph`, `crossmatch`, `integration`, `isochrones`, `pipeline`, `scheduler`, `workspace` — have no frontend, chat-tool, or worker HTTP caller and are mounted only with `ZERO_CALLER_ROUTERS_ENABLED=1` (#54, 2026-08-11; `backend/app/main.py`). SSE streaming on the chat path, long-poll + WebSocket for collaboration, background workers for pipeline execution.
 
 3. **Execution + storage** — PostgreSQL (prod) / SQLite (dev) for metadata; local filesystem for FITS; Redis for content-addressed connector cache + Celery queue; Celery worker + beat for heavy pipelines. Arbitrary `run_python` execution is disabled by default and prohibited in hosted production until it runs in a separate OS-isolated environment with no application secrets or tenant mounts.
 
 4. **External services** — 23 astronomy connector keys, with 6 provenance-v2 active sources (`vizier`, `gaia`, `simbad`, `ned`, `2mass`, `alma`) and 17 maintenance-gated sources; NASA ADS / arXiv, astrometry.net, IRSA dust maps, PARSEC isochrones, and routed LLM backends (Claude / OpenAI / DeepSeek / local). ALMA is active for Science Archive observation metadata, not derived line luminosity/FWHM measurements.
 
-Users move between chat → analysis → export → paper without losing context. The chat assistant bridges the module through its **81-tool catalog** (§3; live-imported 2026-08-07). The cosmology manifest allowlists **61 tools** and the remaining 20 catalog entries — dormant-vertical implementations retained in code — are physically invisible to the LLM. With the dark-launched v0.2 flag off, `api/chat.py` also removes `verify_scalar_derivation`, leaving **60 tools wire-visible by default**.
+Users move between chat → analysis → export → paper without losing context. The chat assistant bridges the module through its **81-tool catalog** (§3; live-imported 2026-09-09). The cosmology manifest allowlists **61 tools**; the remaining 20 catalog entries — non-cosmology analysis tools, the paper-tool-mining tools, and the pipeline/paper-draft/validate helpers retained in code — are physically invisible to the LLM. With the dark-launched v0.2 flag off, `api/chat.py` also removes `verify_scalar_derivation`, leaving **60 tools wire-visible by default**.
 
 ### Runtime topology
 
 ```text
 Browser SPA (React/Vite)
-  ├─ REST: auth, workspace, data, papers, admin, settings
+  ├─ REST: auth, data, chat sessions, papers, research, admin, settings
   ├─ SSE: /api/chat/message/stream streaming assistant turns
   └─ WebSocket: collaboration, presence, long-running progress
 
 FastAPI web process
-  ├─ Router layer: auth/data/chat/pipeline/export/paper/admin/...
+  ├─ Router layer: auth/data/chat/export/paper/research/admin/... (pipeline, workspace and five other zero-caller routers mount only with ZERO_CALLER_ROUTERS_ENABLED=1)
   ├─ AI layer: orchestrator → inference_router → selected model backend
   ├─ Tool layer: ai_tools dispatcher → connectors / analysis services / sandbox
   ├─ Guardrail layer: task router → source/receipt verifier → claim/citation gates
@@ -51,7 +51,7 @@ numeric validation, citation validation, rate limits, and UI status chips.
 
 **Chat turn**
 
-1. Frontend posts a user message to `/api/chat/message` and opens an SSE stream.
+1. Frontend posts a user message to `/api/chat/message/stream` and reads the SSE stream (`/api/chat/message` is the non-streaming JSON variant of the same turn).
 2. `chat.py` assembles the system prompt, user/session context, selected model
    profile, visible tool schema, and research-focus filters.
 3. `inference_router` calls the selected provider. The provider returns prose,
@@ -142,10 +142,22 @@ numeric validation, citation validation, rate limits, and UI status chips.
    value against the current-turn summary/HDI, so a supported parameter name
    does not automatically validate a wrong number. Unsupported or contradicted
    facts are surfaced with safe rewrite guidance.
-5. Final prose must follow the research copilot structure: what can be tested
-   now, executed analyses, preliminary findings, robustness, drivers, unsupported
-   pieces, and the next experiment.
-6. Alpha-testing outputs must include the research plan, executed matrix,
+5. Final prose follows the `required_output_sections` returned by
+   `plan_research_program`: what can be tested now, executed analyses,
+   preliminary findings, robustness, drivers, unsupported pieces, and the
+   next experiment. The prompt's Research Mode rules additionally require
+   failed attempts and unresolved questions to be presented, not omitted.
+6. `export_research_report` renders a fixed 13-section markdown document
+   (`REPORT_SECTIONS` in `research_program.py`, since #70 on 2026-09-05):
+   Scientific Question, Why it matters, Research Plan, Data Sources, Methods,
+   Execution Trace, Failed Attempts, Findings, Alternative Explanations,
+   Uncertainty, Reproducibility Package, Human Review Checklist, and Draft
+   Scientific Claim. Empty sections stay as honest scaffolds rather than being
+   dropped; "Why it matters" and "Alternative Explanations" are left for a
+   human to fill. The chat UI surfaces the report above the collapsed raw
+   tool cards (`VisibleResearchReport` in `ActionCard.tsx`;
+   `ResearchProgramPanel`).
+7. Alpha-testing outputs must include the research plan, executed matrix,
    runnable/not-runnable cells, evidence graph, fact-check report, and local
    diagnostic bundle for blind-test review.
 
@@ -153,7 +165,7 @@ numeric validation, citation validation, rate limits, and UI status chips.
 > extracted to `standard-astro-verticals` on 2026-06-03 along with their tool
 > implementations and prompt modules. See that repo for their documentation.
 
-**Paper-to-tool mining workflow**
+**Paper-to-tool mining workflow** (catalog-only: the seven mining tools are outside the cosmology manifest, so the chat assistant cannot see or invoke them; they are exercised from tests and developer scripts)
 
 1. `build_paper_mining_candidate_pool` assembles a deduplicated corpus from
    supplied seed papers and, only when explicitly enabled, live arXiv searches.
@@ -176,10 +188,14 @@ numeric validation, citation validation, rate limits, and UI status chips.
 6. These outputs are research-infrastructure maps only. They must not be used
    as posterior, fit, or paper-conclusion evidence.
 
-**Pipeline execution**
+**Pipeline execution** (retained engine, no default caller)
 
-1. Frontend submits a DAG to `pipeline` routes.
-2. The backend validates graph shape, node parameters, and heavy-node cost.
+1. The DAG engine and its 35 node implementations remain in the backend, but
+   the `pipeline` router is unmounted unless `ZERO_CALLER_ROUTERS_ENABLED=1`
+   (#54), the Pipeline Studio page was removed in M3, and the `run_pipeline` /
+   `generate_pipeline` tools are outside the cosmology manifest.
+2. When the router is mounted, the backend validates graph shape, node
+   parameters, and heavy-node cost.
 3. Light DAGs can run synchronously; heavy DAGs require Celery mode.
 4. Each node records provenance and cached artifacts for workspace/export.
 
@@ -229,13 +245,13 @@ Entrypoint: [`src/App.tsx`](./frontend/src/App.tsx). Routes are declared here; t
 - [`src/api/client.ts`](./frontend/src/api/client.ts) — Axios + typed SSE streaming. `ThinkingEvent` union covers `agent_text` / `tool_call` / `tool_result` / `status` / **`honest_abstention`** / `error`. `getAIBackendStatus()` feeds the F4 pre-send gate.
 - [`src/context/AuthContext.tsx`](./frontend/src/context/AuthContext.tsx) — JWT lifecycle; logout only on 401/403, not transient errors.
 - [`src/components/viz/*`](./frontend/src/components/viz) — PlotBuilder (Plotly publication-grade; Fit checkbox now shows ✓ / "(not supported)" per chart type) and AladinViewer. (SpectrumViewer / LightCurveViewer / ImageCutoutViewer / MCMCDiagnostics were removed 2026-06-11 — dead code orphaned from every route by the M3 page trim.)
-- [`src/components/chat/*`](./frontend/src/components/chat) — MarkdownText, chat sidebar, figure-expand modal, DataSourcesPanel, AckButton, CosmologyMCMCPanel, CosmologyLikelihoodPanel, `ScalarVerificationReceiptCard`, and the general `EvidenceReceiptCard`.
-- [`src/i18n/index.tsx`](./frontend/src/i18n/index.tsx) — 4-language flat dictionary; ~200+ keys.
-- [`src/styles/journal.css`](./frontend/src/styles/journal.css) — 2 k-line Journal-Edition stylesheet overriding chat / pipeline / browse / ADQL / sessions / account to the newspaper palette; loaded **after** `App.css` so same-specificity rules win the cascade.
+- [`src/components/chat/*`](./frontend/src/components/chat) — MarkdownText, DataSourcesPanel, AckButton, CosmologyMCMCPanel, CosmologyLikelihoodPanel, `ResearchProgramPanel` (plan / matrix / evidence-graph / fact-check results and the exported 13-section report card, #70), `ResearchStepsCard` (research-turn step timeline), DefaultToolResultPanel, PanelEmptyState, `ScalarVerificationReceiptCard`, and the general `EvidenceReceiptCard`. The chat sidebar and the figure-expand / paper modals live beside the page in `pages/Chat/` (`ChatSidebar.tsx`, `ChatModals.tsx`).
+- [`src/i18n/index.tsx`](./frontend/src/i18n/index.tsx) — 4-language flat dictionary; ~850 keys (counted 2026-09-09).
+- [`src/styles/journal.css`](./frontend/src/styles/journal.css) — ~2.6 k-line Journal-Edition stylesheet overriding chat / pipeline / browse / ADQL / sessions / account to the newspaper palette; loaded **after** `App.css` so same-specificity rules win the cascade.
 
 ### Chat UI specifics
 
-- **`HonestAbstentionCard`** (`ChatPage.tsx`) renders the pale-blue ✓ bubble when the SSE `honest_abstention` event arrives. Shows failed/empty tool list, model's rationale, suggested next step, and a "Try it" button that prefills the chat input.
+- **`HonestAbstentionCard`** (`pages/Chat/ChatPanels.tsx`, rendered by `ChatMessageList.tsx`) renders the pale-blue ✓ bubble when the SSE `honest_abstention` event arrives (the event is recorded in `ChatPage.tsx`). Shows failed/empty tool list, model's rationale, suggested next step, and a "Try it" button that prefills the chat input.
 - **`AutoToolResult` status chips** — action card switches left border and badge based on `__tool_status__` / `analysis_status` / `success` / `error` from the provenance envelope. FAILED remains red, EMPTY remains amber, UNAVAILABLE renders as a separate Maintenance state, and SYNTHETIC keeps the loud synthetic warning.
 - **`DataSourcesPanel` + `AckButton`** — tool results with nested provenance expose service name, `archive_version`, ivoid, bibcode/article, authority cues, field-bibcode counts, and a copyable acknowledgement template.
 - **`ScalarVerificationReceiptCard`** — renders the controlled result, propagated uncertainty, formula, source status, response disposition, boundary statement, and receipt hash without merging source verification into arithmetic success.
@@ -262,43 +278,50 @@ Standard Astro ships as a focus-gated prompt + tool catalog. After the 2026-06-0
 - **Active modules** (1): `cosmology` — full BAO/SN/CMB/lensing workflow, blind-tested across 50+ paper-derived cases. The `solar_system` and `exoplanet` active modules and the 12 dormant prompt modules (`agn`, `galaxy_morphology`, `high_z_galaxy`, `image_reduction`, `paper_export`, `paper_tool_mining`, `pipeline_dag`, `pulsar_timing`, `radio`, `stellar`, `team_workspace`, `xray_spectroscopy`) were extracted to `standard-astro-verticals` on 2026-06-03; `modules/` now contains only `cosmology/`. Their tool *implementations* remain under `backend/app/services/` and are hidden by the focus gate.
 - **L1 hard tool gating** lives in `api/chat.py` `_filter_tools_by_research_focus`: foci in `_FOCUS_GATED_VALUES = {"cosmology"}` filter the tool list before it reaches the LLM, and any focus other than `all` fails closed to cosmology. The cosmology manifest allowlists 61 of the 81 catalog tools (live import, 2026-08-07); the other 20 are dormant-vertical implementations the agent loop can never call under this build. When v0.2 is disabled, the same filter removes `verify_scalar_derivation` before the schema reaches the model, restoring a 60-tool wire surface.
 
-### API domains (44 router modules — measured 2026-08-07)
+### API domains (44 router modules — re-verified 2026-09-09)
+
+Since #54 (2026-08-11) seven of the 44 modules — `citation_graph`, `crossmatch`, `integration`, `isochrones`, `pipeline`, `scheduler`, `workspace` — have no frontend, chat-tool, or worker HTTP caller and are **not mounted by default**; `backend/app/main.py` includes them only when `ZERO_CALLER_ROUTERS_ENABLED=1` (`.env.example` ships `false`). Their implementations and tests stay in the tree; the rows below mark them *(unmounted by default)*.
 
 | Router | Role |
 |---|---|
 | `auth` | Username/password, JWT, Google OAuth, setup keys |
 | `data` | Search, advanced search, FITS upload/browse/preview/download |
 | `chat` | Agent loop, SSE streaming, sessions CRUD, export actions, **`/api/chat/ai_backend_status`** |
-| `pipeline` | DAG validation, sync/async execution, template + version APIs, batch |
-| `integration` | ADQL/TAP with radius-halving retry, VOTable, Jupyter export, SAMP |
-| `workspace` | File metadata, tags, notes, batch upload/export |
+| `pipeline` *(unmounted by default)* | DAG validation, sync/async execution, template + version APIs, batch |
+| `integration` *(unmounted by default)* | ADQL/TAP with radius-halving retry, VOTable, Jupyter export, SAMP |
+| `workspace` *(unmounted by default)* | File metadata, tags, notes, batch upload/export |
 | `export` | Markdown / report / notebook / LaTeX / BibTeX |
 | `paper` | Paper draft generation + manuscript download |
-| `sessions` | Share tokens, comments, snapshots, forks, diffs |
-| `research` | Opt-in memory profile + history |
+| `sessions` | Share tokens, comments, snapshots, forks, diffs (plus the public shared-session router) |
+| `research`, `claim_audits`, `research_workspaces` | Opt-in memory profile + history; claim-audit records (`CLAIM_AUDIT_ENABLED`); research workspaces (`RESEARCH_WORKSPACE_ENABLED`) |
 | `team` | Friends, shared resources, activity feed |
 | `ws` | WebSocket relay (presence, pipeline progress, collab channels) |
 | `alerts`, `anomalies`, `followup`, `dossier` | Time-domain + anomaly features |
-| `citations`, `citation_graph`, `arxiv` | ADS + arXiv search / extract |
-| `crossmatch` | Position + probabilistic cross-matching |
+| `citations`, `arxiv`; `citation_graph` *(unmounted by default)* | ADS + arXiv search / extract |
+| `crossmatch` *(unmounted by default)* | Position + probabilistic cross-matching |
 | `visualization` | Plotly chart generation |
-| `provenance` | IVOA ProvDM lineage export |
-| `scheduler` | Scheduled analysis jobs |
-| `isochrones` | Cached PARSEC isochrone delivery |
+| `provenance` | IVOA ProvDM lineage export (fetched by chat result cards) |
+| `scheduler` *(unmounted by default)* | Scheduled analysis jobs |
+| `isochrones` *(unmounted by default)* | Cached PARSEC isochrone delivery |
 | `inference` | Inference routing, model health, cost tracking |
-| `settings` | Encrypted API-key storage |
-| `health` | Liveness; `/health/deep` verifies Alembic head, durable storage, Redis and a live Celery worker |
-| `events` | Analytics event ingestion |
+| `settings`, `user_tools`, `privacy`, `config` | Encrypted API-key storage, per-user tool preferences, privacy/export actions, public config |
+| `health` | Liveness; `/health/ready` is the Render probe, `/health/deep` verifies Alembic head, durable storage, Redis and a live Celery worker |
+| `events` | Analytics event ingestion (+ admin events) |
+| `jobs`, `worker_control` | Async tool jobs; local science-worker control plane (`LOCAL_SCIENCE_WORKER_ENABLED`) |
+| `foundry`, `foundry_activation`, `foundry_materialization` | Workflow Foundry research/admin/internal routes (six `FOUNDRY_*_ENABLED` flags, off by default; Foundry is frozen per the backlog) |
+| `public_evidence` | `/.well-known/standard-astro-evidence-keys.json` and the public Evidence Pack verify endpoint (#34; `keys/evidence-keyring.json` currently lists no keys) |
+| `automation`, `bot_console` | Local automation and the loopback-only Bot Console |
+| `comments`, `admin_stats`, `admin_trending`, `admin_sandbox`, `admin_literature` | Public comments and the served admin dashboard's stats / trending / sandbox / literature-seed endpoints |
 
 ### AI layer
 
 - [`app/ai/orchestrator.py`](./backend/app/ai/orchestrator.py) — Intent classification, specialist-context assembly, tool-subset filtering.
-- [`app/ai/model_profiles.py`](./backend/app/ai/model_profiles.py) — Manual provider/model registry. Current profiles: Claude default, OpenAI GPT-5.5 alias (falls back to `gpt-5.4` unless `OPENAI_GPT55_MODEL` is set), OpenAI GPT-5.4, DeepSeek V4 Pro, DeepSeek V4 Flash, local OpenAI-compatible HTTP, and local OpenAI/Codex CLI.
-- [`app/ai/inference_router.py`](./backend/app/ai/inference_router.py) — Calls the user-selected model profile, logs cost/latency/model/fallback metadata, and falls back across backends only after the selected backend fails. Backends are `claude` / `openai` / `deepseek` / `local`; `_backend_is_available` checks the matching API key (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `DEEPSEEK_API_KEY`) or strict local enablement. The `local` backend supports OpenAI-compatible HTTP (`LOCAL_MODEL_ENABLED=1`), an ephemeral Codex JSON bridge (`OPENAI_CLI_ENABLED=1`, `local:openai-cli`), and an ephemeral Claude Code JSON bridge (`CLAUDE_CLI_ENABLED=1`, `local:claude-cli`). Both CLI children receive a secret-minimized environment and are unavailable in production; Claude disables built-in tools/settings/session, while Codex ignores config/rules and uses its read-only sandbox. Standard Astro validates requested tool names before executing platform tools. Raises `InferenceError("No configured AI backends are available…")` when no backend is configured (surfaced pre-send by F4.2).
-- `app/ai/agents/*` — Specialist prompt fragments (data, analysis, literature, observation, visualization, spectrum).
+- [`app/ai/model_profiles.py`](./backend/app/ai/model_profiles.py) — Manual provider/model registry. Current profiles (9): Claude default, OpenAI GPT-5.5 alias (falls back to `gpt-5.4` unless `OPENAI_GPT55_MODEL` is set), OpenAI GPT-5.4, DeepSeek V4 Pro, DeepSeek V4 Flash, local OpenAI-compatible HTTP (`local:default`), and three local subscription-CLI bridges — `local:openai-cli` (Codex), `local:claude-cli` (Claude Code), and `local:kimi-cli` (Kimi) — all local-only and off unless the matching `*_CLI_ENABLED` flag is set.
+- [`app/ai/inference_router.py`](./backend/app/ai/inference_router.py) — Calls the user-selected model profile, logs cost/latency/model/fallback metadata, and falls back across backends only after the selected backend fails. Backends are `claude` / `openai` / `deepseek` / `local`; `_backend_is_available` checks the matching API key (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `DEEPSEEK_API_KEY`) or strict local enablement. The `local` backend supports OpenAI-compatible HTTP (`LOCAL_MODEL_ENABLED=1`), an ephemeral Codex JSON bridge (`OPENAI_CLI_ENABLED=1`, `local:openai-cli`), and an ephemeral Claude Code JSON bridge (`CLAUDE_CLI_ENABLED=1`, `local:claude-cli`). Both CLI children receive a secret-minimized environment and are unavailable in production; Claude disables built-in tools/settings/session, while Codex ignores config/rules and uses its read-only sandbox. Standard Astro validates requested tool names before executing platform tools. Raises `InferenceError("No configured AI backends are available…")` when no backend is configured (surfaced pre-send by F4.2). DeepSeek thinking mode (`thinking: {type: enabled}` in the profile) requires a `reasoning_content` key on every assistant `tool_calls` message, including turns the platform synthesizes; the OpenAI-compatible normalizer backfills it before dispatch (#59, 2026-09-04, after the Daily suite went red on DeepSeek 400s), and `tests/test_deepseek_reasoning_content.py` guards every pre-LLM branch.
+- `app/ai/agents/*` — Specialist prompt fragments (data, analysis, literature, observation, visualization).
 - [`app/services/ai_tools/`](./backend/app/services/ai_tools) — **81-tool catalog + executor dispatcher** (live import, 2026-08-07), organised as a package (`__init__.py` re-exports the public `TOOLS` list, `execute_tool`, and helper imports so call sites are unchanged). Each tool has a literature-cited description and JSON-schema input. The cosmology manifest contains **61 tools**; the default dark-launch filter exposes 60 until v0.2 is enabled. The other 20 entries are dormant-vertical implementations retained in code but never exposed under this build.
 - [`app/services/prompt_loader.py`](./backend/app/services/prompt_loader.py) — Three-layer SYSTEM_PROMPT assembler (`base.md` + `core/*.md` + `modules/<focus>/prompt.md`) plus per-focus tool allowlist builder; cached via `lru_cache`.
-- [`app/api/chat.py`](./backend/app/api/chat.py) — Agent loop (max 12 iterations), focus-aware `SYSTEM_PROMPT` built via `prompt_loader.build_system_prompt(_ASTRO_RESEARCH_FOCUS)` (cosmology focus: ~100 KB / ~26 k tokens as of 2026-07-03 — run `scripts/stats.sh` for the live numbers), SSE stream with heartbeats, empty-reply fallback synthesis, zero-fabrication gate, structured-abstention parser, and deterministic literature-table / `fit_line_lfr` follow-up for line-relation prompts when the model has found papers or fit-ready measurement caches but skipped the required tool.
+- [`app/api/chat.py`](./backend/app/api/chat.py) + [`app/services/agent_runtime/loop.py`](./backend/app/services/agent_runtime/loop.py) — HTTP entry and agent loop (12 iterations in default mode, 30 in long mode; `agent_runtime/runtime_config.py`), focus-aware `SYSTEM_PROMPT` built via `prompt_loader.build_system_prompt(_ASTRO_RESEARCH_FOCUS)` (cosmology focus: 43,474 chars ≈ 42 KB ≈ 10 K tokens, 32 top-level sections, measured 2026-09-09 after the 2026-09-05 prompt simplification — run `scripts/stats.sh` for the live numbers), SSE stream with heartbeats, empty-reply fallback synthesis, zero-fabrication gate, structured-abstention parser, and deterministic literature-table / `fit_line_lfr` follow-up for line-relation prompts when the model has found papers or fit-ready measurement caches but skipped the required tool.
 - [`app/services/scalar_derivation.py`](./backend/app/services/scalar_derivation.py) — deterministic operation, unit, covariance, Jacobian, and canonical-receipt-hash kernel.
 - [`app/services/source_packet_resolver.py`](./backend/app/services/source_packet_resolver.py) — bounded source adapters, locator-scoped exact matching, cache identity, SSRF/DNS-rebinding defenses, and explicit degraded source states.
 - [`app/services/chain_export.py`](./backend/app/services/chain_export.py) — atomic getdist-format chain rendering and persistence with honest in-process/external-Cobaya metadata.
@@ -334,7 +357,7 @@ layers:
 
 2. **G2 — AST static analysis.** [`app/services/synthetic_code_detector.py`](./backend/app/services/synthetic_code_detector.py) parses the Python code, flags RNG calls (`np.random.*` / `scipy.stats` / stdlib `random` / `torch`·`jax`·`tf` / `getattr(np, "random")` dynamic access) + time-axis builders (`np.linspace` / `np.arange` / `pd.date_range`) + suspicious keyword phrases ("simulate", "based on known parameters", "mock data", "generate realistic X") + var names (`synthetic_*`, `fake_*`). Legitimate random-use contexts are whitelisted (`emcee`, `dynesty`, `arviz`, `bootstrap`, `jackknife`). Verdict `synthetic` + declared real source → reject; `suspicious` → downgrade output to SYNTHETIC.
 
-3. **G3 / G3.4 — Upstream tool-failure tracking + physical tool removal.** [`api/chat.py` `_run_agent_loop`](./backend/app/api/chat.py) maintains a per-turn `tool_failure_counts`. When a data-fetch tool fails ≥ `DISABLE_AFTER_FAILURES=3` times (hard connector errors only; see the circuit-breaker note below), it is **removed from the `tools` parameter** on the next LLM call — the model literally cannot call it any more. A runtime note in the system prompt for that turn tells the model which tools were disabled and why. Also: when data-fetch failed earlier AND a subsequent `run_python` doesn't declare a real source, its output is tainted SYNTHETIC regardless of what was declared.
+3. **G3 / G3.4 — Upstream tool-failure tracking + physical tool removal.** [`services/agent_runtime/loop.py` `_run_agent_loop`](./backend/app/services/agent_runtime/loop.py) (moved out of `api/chat.py` in the 2026-07-03 split) maintains a per-turn `tool_failure_counts`. When a data-fetch tool fails ≥ `DISABLE_AFTER_FAILURES=3` times (hard connector errors only; see the circuit-breaker note below), it is **removed from the `tools` parameter** on the next LLM call — the model literally cannot call it any more. A runtime note in the system prompt for that turn tells the model which tools were disabled and why. Also: when data-fetch failed earlier AND a subsequent `run_python` doesn't declare a real source, its output is tainted SYNTHETIC regardless of what was declared.
 
 4. **G1.5 — Guard reaches the model.** Error-string sanitization (`result_provenance._sanitize_error_message`) replaces instruction-like tokens ("retry", "fallback", "simulate", "narrower parameters") with neutral phrasings before the text is fed back to the LLM, closing the "prompt injection via error strings" vector the reviewer identified. SYSTEM_PROMPT has a dedicated ANTI-INSTRUCTION-REFLECTION section + an explicit rule banning `np.random` fallback after any data-fetch failure. System prompt is always built fresh per request (not cached per session).
 
@@ -344,7 +367,7 @@ layers:
 
 **VizieR catalog registry.** Paper 5 failed with "unresolved identifier RAJ2000" on SDSS `V/147/sdss12`. Registry now contains `V/147/sdss12`, `V/139/sdss9`, `I/355/gaiadr3`, `II/335/galex_ais` with real column lists (SDSS uses `RA_ICRS`/`DE_ICRS`, not `RAJ2000`). `suggest_for_missing_column()` maps common mistakes to hints; `_exec_adql` auto-attaches the hint to TAP error messages.
 
-**Debug endpoint.** `/api/chat/_debug_last_prompt` (gated by env `DEBUG_LAST_PROMPT=1`) returns the last prompt `inference_router.route` received so reviewers can confirm in-browser that the zero-fabrication + anti-reflection rules are actually present in the LLM's context.
+**Debug endpoint.** `/api/chat/_debug_last_prompt` (admin-only via `require_admin_any`, and active only when `DEBUG_LAST_PROMPT=1` is set in the backend env) returns the last prompt `inference_router.route` received so reviewers can confirm in-browser that the zero-fabrication + anti-reflection rules are actually present in the LLM's context.
 
 ### Post-H data access & AI coordination (2026-04-20)
 
@@ -463,7 +486,7 @@ This is the load-bearing trust layer. Three layers of defence + one positive inc
 ### Pipeline layer
 
 - [`app/pipeline/engine.py`](./backend/app/pipeline/engine.py) — DAG validation, topological execution, Redis caching, sync fallback, Celery entrypoint, per-node provenance with the environment manifest.
-- [`app/pipeline/nodes/__init__.py`](./backend/app/pipeline/nodes/__init__.py) — **`NODE_COST` registry + `dag_has_heavy_nodes()`**. 17 heavy nodes (`BayesianFit`, `TransitFit`, `GPDetrend`, `PhotoZPro`, `SEDFit`, `ImageStack`, `Mosaic`, `PSFMatch`, `Deblend`, `CosmicRayReject`, `SourceExtract`, `PSFPhotometry`, `AstrometricSolve`, `SpectraStack`, `TelluricCorrect`, `TimeSeriesAnalysis`, `CustomScript`); `/api/pipeline/run` returns 503 if heavy nodes present and `PIPELINE_MODE != "celery"`.
+- [`app/pipeline/nodes/__init__.py`](./backend/app/pipeline/nodes/__init__.py) — **`NODE_COST` registry + `dag_has_heavy_nodes()`**. 18 heavy nodes (`BayesianFit`, `TransitFit`, `GPDetrend`, `PhotoZPro`, `SEDFit`, `ImageStack`, `Mosaic`, `Reproject`, `PSFMatch`, `Deblend`, `CosmicRayReject`, `SourceExtract`, `PSFPhotometry`, `AstrometricSolve`, `SpectraStack`, `TelluricCorrect`, `TimeSeriesAnalysis`, `CustomScript`); the run path returns 503 if heavy nodes are present and `PIPELINE_MODE != "celery"` (`/api/pipeline/run` itself is mounted only with `ZERO_CALLER_ROUTERS_ENABLED=1`).
 - **35 node types** by family:
   - Data input: QueryData, ImportWorkspace, LoadData
   - CCD reduction: BiasSubtract, DarkCorrect, FlatField, CosmicRayReject
@@ -510,7 +533,9 @@ Core entities (see `app/models/schemas.py`):
 - `UserEvent`, `InferenceLog` — Analytics + cost.
 - Tables for alerts, anomalies, teams, setup keys, schedules.
 
-SQLite (dev) portability via custom `UUIDType` + `JSONType`. Alembic-managed migrations (2 versions tracked); runtime `_migrate_add_columns` smooths over SQLite's inability to add columns via `create_all()`.
+Additional record modules under `app/models/`: `research_records.py` (durable research records), `claim_audit_records.py` (claim-audit + privacy records, `CLAIM_AUDIT_ENABLED`), `workspace_records.py` (research workspaces), `worker_records.py` (local science-worker loop), and `foundry_records.py` / `foundry_activation_records.py` / `foundry_materialization_records.py` (Workflow Foundry catalog, activation and materialization receipts; Foundry is flag-gated and frozen).
+
+SQLite (dev) portability via custom `UUIDType` + `JSONType`. Alembic-managed migrations (20 versions in `backend/alembic/versions/` as of 2026-09-09; production uses Alembic exclusively and the CI `migration-and-recovery` job rejects model/migration drift against an empty PostgreSQL); runtime `_migrate_add_columns` smooths over SQLite's inability to add columns via `create_all()`.
 
 ## 5. Runtime flows
 
@@ -522,7 +547,7 @@ SQLite (dev) portability via custom `UUIDType` + `JSONType`. Alembic-managed mig
 
 ### ADQL
 
-1. User or `run_adql` → `execute_adql_query` (standalone, not route-only).
+1. `run_adql` (chat tool) → `execute_adql_query` in `api/integration.py` (imported directly; the `integration` HTTP router that also exposes it is unmounted unless `ZERO_CALLER_ROUTERS_ENABLED=1`, #54, 2026-08-11).
 2. 408/502/503 → radius halved, then quartered.
 3. Full result (≤2000 rows) cached under `"latest_adql"`; AI sees first 100 rows + note; downstream Python gets the full set via `get_cached_results('latest_adql')`.
 
@@ -531,21 +556,21 @@ SQLite (dev) portability via custom `UUIDType` + `JSONType`. Alembic-managed mig
 1. SSE POST `/api/chat/message/stream` with messages + context (`python_session_id`, `current_session_id`, last search / ADQL result set / uploaded FITS, etc.).
 2. Runtime = focus-aware `SYSTEM_PROMPT` (size and section count: see §6) + specialist-agent fragments + filtered tool list (81 catalog tools → 61 in the cosmology manifest → 60 wire-visible with v0.2 off, measured 2026-08-07).
 3. When v0.2 is enabled, `prompt_routing` assigns `deterministic_source_check`, `research_exploration`, `full_research`, or `general`. The orchestrator collapses deterministic checks to one agent loop so the outer specialist merge cannot duplicate work or discard a valid receipt.
-4. `inference_router.route(...)` receives the validated manual `model_profile` from chat context, then enters the tool loop (max 12 iterations). Per-tool deadlines: `fit_isochrone` 180 s, `fit_transit_model`/`transit_search_bls` 120 s, `estimate_photo_z_pro` 90 s, rest 45 s. Agent-loop outer 360 s; connection heartbeats every 12 s to defeat proxy idle-kill.
+4. `inference_router.route(...)` receives the validated manual `model_profile` from chat context, then enters the tool loop (12 iterations / 360 s outer budget in default mode; 30 iterations / 1800 s with doubled tool deadlines in long mode — `agent_runtime/runtime_config.py`). Per-tool deadlines come from `agent_runtime/tool_execution.py` `_TOOL_DEADLINE_TABLE`: e.g. `run_python` 310 s, `run_adql` 300 s, `full_research_report` 300 s, `research_workflow` 240 s, `generate_paper_draft` and `fit_isochrone` 180 s, `run_research_matrix` 120 s, `query_gaia_cluster` 90 s, default 45 s. Connection heartbeats every 12 s defeat proxy idle-kill.
 5. Tool returns flow through `normalize_tool_result` → `__tool_status__` banner + reproducibility envelope + nested provenance + sanity warnings. Scalar and general evidence receipts stay attached to the validation summary.
 6. Final reply goes through:
    1. `_parse_abstention_tag` → if `<tools_returned_nothing/>` → render card, emit SSE, return.
    2. `zero_data_but_quantitative(reply, tool_results)` → if empty turn + numeric claim → hard block.
    3. `validate_claims(...)` with `strict_when_empty`, plus provenance citation validation → up to 2 regeneration attempts for numeric failures; citation violations hard-block by default and become warn-only only when `PROVENANCE_VALIDATOR_HARDBLOCK=false` is set explicitly.
    4. Fallback synthesis (empty LLM reply) — also validated.
-7. SSE events: `text` (final reply), `agent_text` (live thinking), `tool_call`, `tool_result` (`live: true` during loop + final consolidated), `status` (heartbeats), `honest_abstention`, `error`, `done`.
+7. SSE events: `text` (final reply, carrying `hit_iteration_cap` and `validation_summary`), `agent_text` (live thinking), `reasoning_content` (provider thinking text when present), `tool_call`, `tool_result` (`live: true` during loop + final consolidated), `tools_disabled`, `workflow_budget`, `workflow_checkpoint`, `status` (heartbeats), `honest_abstention`, `reply_truncated`, `error`, `done`.
 8. Auto-save after each turn; auto-title from first user message; F4 pre-send gate blocks `Send` when no AI backend is configured.
 
 ### Pipeline (backend / API only)
 
-The visual Pipeline Studio frontend was removed in the M3 trim; the DAG engine and `pipeline` API routes remain for AI-generated (`generate_pipeline`) and programmatic DAGs.
+The visual Pipeline Studio frontend was removed in the M3 trim, and since #54 (2026-08-11) the `pipeline` HTTP router is unmounted unless `ZERO_CALLER_ROUTERS_ENABLED=1`. The DAG engine remains for programmatic DAGs; the `generate_pipeline` / `run_pipeline` chat tools exist in the catalog but are outside the cosmology manifest, so in the default build the engine has no chat or HTTP caller.
 
-1. A DAG is submitted to `POST /api/pipeline/run`. If heavy + `PIPELINE_MODE != celery` → 503.
+1. A DAG is submitted programmatically or, with the router enabled, to `POST /api/pipeline/run`. If heavy + `PIPELINE_MODE != celery` → 503.
 2. Celery worker (default) or sync thread executor (dev/test) executes; Redis cache keyed on content hash; per-node provenance with environment manifest.
 
 ### Collaboration
@@ -554,7 +579,7 @@ Session share tokens → read / comment / fork URLs. Snapshots serialise current
 
 ## 6. AI knowledge base (`SYSTEM_PROMPT`)
 
-Focus-aware. Cosmology focus assembles to **~100 KB / ~26 k tokens** (as of 2026-07-03; run `scripts/stats.sh` for the live size and section count — precise numbers here rot). The prompt is built per request from `backend/app/prompts/` by `services/prompt_loader.build_system_prompt(focus)`:
+Focus-aware. Cosmology focus assembles to **~42 KB / ~10 K tokens (43,474 chars, 32 top-level sections)** as measured 2026-09-09 after the 2026-09-05 prompt simplification (run `scripts/stats.sh` for the live size and section count — precise numbers here rot; the token figure is a chars/4 estimate). The base prompt is assembled from `backend/app/prompts/` by `services/prompt_loader.build_system_prompt(focus)` (cached per focus); per-request context, user identity, and runtime notes such as disabled tools are appended per turn:
 
 ```
 prompts/
@@ -608,8 +633,10 @@ Uvicorn `--reload` + Vite dev server + SQLite + local files + no Redis (sync pip
 
 Five deployed services plus one database:
 
-1. `standard-astro-backend` — FastAPI, `/health/deep` healthcheck, paid
-   **Standard** instance, S3-compatible research storage and `/app/data` disk.
+1. `standard-astro-backend` — FastAPI, `/health/ready` Render healthcheck
+   (`/health/deep` remains the operator probe for storage, Redis and a live
+   Celery worker), paid **Standard** instance, S3-compatible research storage
+   and a 10 GB `/app/data` disk.
 2. `standard-astro-frontend` — Vite build, SPA rewrites.
 3. `standard-astro-db` — PostgreSQL (basic-256mb).
 4. `standard-astro-redis` — persistent Render Key Value Celery broker.
@@ -620,10 +647,14 @@ Five deployed services plus one database:
 
 ### Auto-deploy
 
-Push to `main` → Render deploy after linked CI checks pass (2026-06-03 positioning:
-the hosted deployment is NOT the current focus; local + GitHub Actions is the
-primary environment, and deploy health is not the success criterion for a
-change). The backend runs on a paid Standard instance that does not sleep;
+Since 2026-07-20 the backend, Celery worker and Celery beat services carry
+`autoDeployTrigger: off` in `render.yaml`; they are deployed only by the
+exact-commit activation workflow (`foundry-registry-activation.yml`), so a
+push to `main` does not redeploy the backend. Only `standard-astro-frontend`
+auto-deploys after linked CI checks pass (`checksPass`). The 2026-06-03
+positioning still holds: the hosted deployment is NOT the current focus;
+local + GitHub Actions is the primary environment, and deploy health is not
+the success criterion for a change. The backend runs on a paid Standard instance that does not sleep;
 the `BackendBanner` cold-start recovery path remains as defense against
 transient 502/503s.
 
@@ -634,9 +665,9 @@ transient 502/503s.
 - The orchestrator (`app/ai/orchestrator.py`) classifies intent with regexes and narrows the chat-path toolset to the matched specialists' allowlists. Those allowlists cover a minority of the cosmology manifest (analysis_agent carries `compare_luminosity_distances`, `demagnify_sample`, `estimate_photo_z` and similar analysis tools); the likelihood-chain, sampler and research-program tools (`build_cosmology_likelihood`, `run_cosmology_likelihood_chain`, `fit_cosmology_mcmc`, `plan_research_program`, `run_research_matrix`, ...) are in no specialist allowlist and reach the model only through the loop's forced routes. Composite prompts run the specialists sequentially in `chat.py` with a 400-character handoff; there is no parallel multi-agent execution.
 - Opt-in research memory uses hashed embeddings, not a vector DB.
 - ADQL cache stores full result sets; the AI sees 100 rows; Python gets the rest via the cache key.
-- System prompt is ~26 k tokens under cosmology focus (`scripts/stats.sh` for the live number). Further per-module growth will require a jump-to section index.
+- System prompt is ~10 K tokens (43,474 chars, measured 2026-09-09) under cosmology focus (`scripts/stats.sh` for the live number); the 2026-09-05 prompt simplification (965b0b9) removed the earlier ~26 k-token pressure, but further per-module growth would still call for a jump-to section index.
 - Exactly 1 prompt module (`cosmology`) is active and it is the only module directory in the repo. Re-introducing a vertical means adding its module directory back (from `standard-astro-verticals`), populating its manifest tools list, and adding the focus literal to `_FOCUS_GATED_VALUES` in `api/chat.py`. The 20 retained dormant-tool implementations under `services/` stay hidden until a manifest allowlists them.
-- Lightweight scalar verification is dark-launched and disabled by default. Its `verified_exact` state proves a locator-scoped label/value match, not scientific-method validity, and every receipt remains non-publication-ready. The 2026-08-06 evaluation artifacts predate the thirteen review-hardening rounds now on the branch, so the exact live demo prompts must be rerun on the current code before an expert demonstration or Alpha claim.
+- Lightweight scalar verification is dark-launched and disabled by default. Its `verified_exact` state proves a locator-scoped label/value match, not scientific-method validity, and every receipt remains non-publication-ready. The 2026-08-06 evaluation artifacts predate the thirteen review-hardening rounds of early August and everything merged since 2026-08-11 (router gate, DeepSeek `reasoning_content` fix, iteration-budget prompt, registry re-pin, 13-section research report, the 2026-09-05 prompt simplification), so the exact live demo prompts must be rerun on the current code before an expert demonstration or Alpha claim. The pre-registered v0.3 exploration-depth harness (#66) is the committed instrument for that rerun; as of 2026-09-09 no rerun result is recorded in the tree.
 - `backend/app/services/source_mapping.py` is hand-maintained alongside `connectors/availability.py`. Both are synchronized on the same 6 active / 17 gated keys; the consistency is enforced by `backend/tests/test_source_mapping.py`, which asserts `set(ACTIVE_ARCHIVE_MAPPINGS keys) == V2_AVAILABLE_CONNECTORS` and that the gated set equals `CONNECTORS_KEYS - V2_AVAILABLE_CONNECTORS`. When promoting a new connector to v2 you must edit both files in the same change.
 - API keys live in browser `localStorage` in beta mode; F4 gates the Send button but a full per-user session-storage migration is still backlog (PART C M9).
 - **Final replies are English-only.** The zero-fabrication numeric/citation regex gate ships English patterns only, so a non-English (CJK) final reply would bypass claim extraction. A non-English draft now triggers one English regeneration (numbers/citations preserved) before the hard block, but the working language is still English — non-English prompts get English answers, not localized prose.
@@ -644,9 +675,10 @@ transient 502/503s.
 
 ## 10. Testing
 
-- **Backend**: pytest suite under `backend/tests/`. Major modules include `test_api`, `test_claim_validator`, `test_citation_validation`, `test_b7_regression`, `test_cosmology_mcmc`, `test_abstention_parser`, `test_sandbox_crash_paths`, `test_sandbox_isolation`, `test_result_provenance`, `test_connector_availability_gate`, `test_provenance_registry_loader`, `test_provenance_v2_connectors`, `test_connector_cache`, `test_router_golden`, `test_workflow_checkpoint`, `test_environment_manifest`, and `test_metrics`. The v0.2 contract is pinned by `test_scalar_derivation`, `test_scalar_verification_tool`, `test_source_packet_resolver`, `test_lightweight_task_routing`, `test_lightweight_agent_loop`, `test_evidence_receipts`, and `test_chain_export`. Golden-path fixtures live under `backend/tests/golden/`.
-- **Frontend**: Vitest suite (`npm run test` for the live count). Coverage includes ChatPage, DataSourcesPanel, CosmologyMCMCPanel, AckButton, ActionCard, PlotBuilder, and common utilities. TypeScript strict `tsc -b` is a required pre-push gate.
-- **CI**: GitHub Actions (`.github/workflows/ci.yml`) runs backend pytest + frontend `tsc` / `eslint` / `vitest` / `vite build` + backend ruff lint on every push and PR.
+- **Backend**: pytest suite under `backend/tests/` (266 files as of 2026-09-09). Major modules include `test_api`, `test_claim_validator`, `test_citation_validation`, `test_b7_regression`, `test_cosmology_mcmc`, `test_abstention_parser`, `test_sandbox_crash_paths`, `test_sandbox_isolation`, `test_result_provenance`, `test_connector_availability_gate`, `test_provenance_registry_loader`, `test_provenance_v2_connectors`, `test_connector_cache`, `test_golden_rigor`, `test_workflow_checkpoint`, `test_observability`, `test_module_manifest`, `test_source_mapping`, `test_research_program`, `test_deepseek_reasoning_content`, `test_scientific_validation_guard`, and `test_public_status_docs`. The v0.2 contract is pinned by `test_scalar_derivation`, `test_scalar_verification_tool`, `test_source_packet_resolver`, `test_lightweight_task_routing`, `test_lightweight_agent_loop`, `test_evidence_receipts`, and `test_chain_export`. Golden-path fixtures live under `backend/tests/golden/`.
+- **Frontend**: Vitest suite (31 files as of 2026-09-09; `npm run test` for the live count). Coverage includes ChatPage, DataSourcesPanel, CosmologyMCMCPanel, CosmologyLikelihoodPanel, PlotBuilder, ResearchProgramPanel, ResearchReportSurfacing, ResearchStepsCard, the evidence and scalar receipt cards, ClaimAuditPage, FoundryPage, and the API client utilities; isolated Playwright browser journeys run as `npm run test:e2e`. TypeScript strict `tsc -b` is enforced by `npm run build` and the CI `frontend-test` type-check step.
+- **CI** (`.github/workflows/ci.yml`, Python 3.11 / Node 20, every push and PR): `backend-test` (pytest with the coverage floor), `frontend-test` (`tsc -b`, eslint, vitest, `vite build`), `frontend-e2e` (Playwright Chromium journeys), `lint` (ruff), `container-build` (production image from `backend/Dockerfile`), `migration-and-recovery` (Alembic against an empty PostgreSQL plus backup restore), and `benchmarks` (cosmology benchmarks + registry audit).
+- **Scheduled measurement instruments**: `daily.yml` (16:17 UTC — `blind-tests` over `backend/scripts/blind_test_cosmology_m0/cases.yaml` with a `deepseek_profile` dispatch input, `integration`, `cobaya-parity`) and `scientific-validation.yml` (Sunday 17:23 UTC — `core-scientific-regression`, `released-likelihood-parity`). Since #35 (2026-09-04) the daily blind-test job appends `log/<date>-<run_id>/` (summary, sha256 manifest, run metadata) to the orphan `evidence-log` branch; the 2026-09-05..08 runs failed only at that publish step, and #76 (2026-09-09) is accepted by the next scheduled run. Behavior changes merge only with both suites green and a rerun baseline for HEAD (see `CLAUDE.md`, Verification).
 - **Physical-regression targets** (manual): NGC 1647 (open cluster, Frasca+2026), M53 (globular + RR Lyrae), Tom 2 blue stragglers (Rain+2021), Vel OB1, white dwarf LF, Pleiades IMF, NGC 752 isochrone age ∈ [1.2, 2.0] Gyr.
 
 ## 11. Physics formula provenance

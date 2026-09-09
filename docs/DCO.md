@@ -1,10 +1,11 @@
 # Developer Certificate of Origin
 
 Standard Astro accepts contributions under the Developer Certificate of
-Origin, version 1.1. A contributor signs each commit to certify that they have
-the right to submit it under the project's license.
+Origin, version 1.1. A contributor signs off each commit to certify that they
+have the right to submit it under the project's license.
 
-Add this line to every commit message:
+Add this line to each commit message of a contribution (as of 2026-09-09 the
+trailer is requested, not verified by an automated check):
 
 ```text
 Signed-off-by: Your Name <your.email@example.org>

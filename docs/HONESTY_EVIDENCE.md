@@ -7,16 +7,24 @@ layer actually works, **including its failures and its open gaps**. Nothing
 here requires installing anything: every claim links to a source document,
 test case, or CI run in this public repository.
 
-Numbers below are copied from the linked sources as of 2026-07-10; the linked
-documents are authoritative if they diverge. Since 2026-07-24, each daily
-blind run also appends its mechanical summary and per-file sha256 hashes to
-the append-only
+Numbers below are copied from the linked sources as of 2026-09-09; the linked
+documents are authoritative if they diverge. Since 2026-09-04 (#35), each
+daily blind run is meant to append its mechanical summary and per-file sha256
+hashes to the append-only
 [`evidence-log` branch](https://github.com/MikhailXiaomaikou/Standard-Astro/tree/evidence-log)
 (`log/<date>-<run_id>/`), so outcomes stay checkable after the 90-day CI
-artifact retention expires. Full transcripts are not published — only their
-hashes, which can be reconciled against the run's artifact while it exists.
-This is a git audit log protected against force-push, not a cryptographic
-transparency log (an external anchor such as Rekor is a possible upgrade).
+artifact retention expires. As of 2026-09-09 the branch holds exactly one
+entry, `log/2026-09-04-33908796284`. The scheduled runs of 2026-09-05
+through 2026-09-08 (#133–#136) passed their blind-test, integration and
+cobaya-parity jobs but failed at the "Publish evidence log" step, so those
+four covered days are missing from the log and are checkable only through
+their CI artifacts while retention lasts. The publish step was repaired on
+2026-09-09 (#76); the next scheduled run is its acceptance. Full transcripts
+are not published — only their hashes, which can be reconciled against the
+run's artifact while it exists. This is a git audit log (force-push and
+deletion protection for the branch is a manual repository setting), not a
+cryptographic transparency log (an external anchor such as Rekor is a
+possible upgrade).
 
 ## 1. Archived DESI cross-check: useful, but not a validated reproduction
 
@@ -65,6 +73,18 @@ matrix have not yet completed, so the current scientific state remains
 `WITHHELD`, with both A-ready and strict-A counts at zero. Adding stricter code
 has not retroactively upgraded the old scientific result.
 
+A second, narrower chain is pre-registered but not yet run: the
+platform-exact Planck 2018 native ΛCDM H0 profile
+(`platform_planck2018_native_lcdm_h0_v1`,
+[platform_h0_prereg.json](../backend/scripts/cobaya/platform_h0_prereg.json),
+committed 2026-09-05 in #36). Before any sample exists it commits the four
+Planck 2018 dataset keys, the sampler settings and seed, rank-normalized
+R-hat `<1.01`, bulk ESS `>=400`, and a consistency check that the H0
+posterior mean lies within 1.0 km/s/Mpc of the registry-pinned 67.36. It is
+a known-configuration run, not a blind test; a failed criterion leaves the
+artifacts unregistered rather than adjusting a threshold. As of 2026-09-09
+no chain has been produced under it.
+
 ## 2. Anti-fabrication defenses triggered by real LLM behavior
 
 These defenses were not just unit-tested — each activated against a real LLM's
@@ -88,14 +108,31 @@ original 10-case suite numbering; the current
 cases and reuses the "D1" label for an unrelated routing case.
 
 The suite runs on a scheduled GitHub Actions workflow (`daily.yml`) against a
-real LLM backend — the run history is public on the repository's Actions tab.
+real LLM backend. The cron path uses provider `auto`, which picks DeepSeek
+`v4-pro` with thinking enabled when only `DEEPSEEK_API_KEY` is configured (the
+cheap daily-cron path; `deepseek_profile` input, `v4-flash` is the
+non-thinking fallback); other providers run by manual dispatch or locally via
+`--provider`. The run history is public on the repository's Actions tab.
 
 ## 3. The suite is not always green — one class of red is an accepted false positive
 
-An honest status report, not a green badge. As of 2026-07-09, 8 of the last 15
-scheduled runs were fully green; triaged reds so far fall into three classes —
-the quoting false kill below, external archive-service outages, and runs where
-the gate blocked every generation attempt so no reply passed:
+An honest status report, not a green badge.
+
+**Status as of 2026-09-09.** Daily: the last scheduled green was run #132 on
+2026-09-04; runs #133–#136 (2026-09-05 through 09-08) passed every blind
+case, the integration job and the cobaya-parity job but were marked red by
+the evidence-log publish step, whose fix (#76) merged on 2026-09-09 and is
+accepted by the next scheduled run. Weekly Scientific Validation: green on
+2026-09-06 (run #13) after every scheduled run since 2026-07-26 had failed on
+the shallow-clone guard fixed by #58. Per-run summaries land on the
+`evidence-log` branch (#35) once the publish step is green again; until
+then, the Actions tab is the record.
+
+As of 2026-07-09, 8 of the first 15 scheduled runs were fully green; triaged
+reds fall into four classes — the quoting false kill below, external
+archive-service outages, runs where the gate blocked every generation attempt
+so no reply passed, and, from August 2026, defects in the measurement
+instrument itself:
 
 - On 2026-06-25 a scheduled run hard-failed case B3 on **exemplary** model
   behavior: the model re-ran the real chain, reported the genuine
@@ -104,9 +141,23 @@ the gate blocked every generation attempt so no reply passed:
 - This false kill was **deliberately not fixed by relaxing the gate**:
   exempting quotation contexts would be launderable ("adopt the transcript's
   71.43 ± 0.31 for the paper" would then pass). The strict forbid stays; the
-  accepted cost is a stochastic false red (~1 in 18 scheduled runs so far).
+  accepted cost is a stochastic false red (one observed instance in the first
+  18 scheduled runs, through 2026-07-09; the rate has not been re-measured
+  since).
 - Other reds have come from external service outages (e.g. a SIMBAD/TAP
   endpoint failure on 2026-06-26 that self-healed).
+- Instrument defects, 2026-08-11 → 2026-09-09. Every scheduled Daily run
+  from 2026-08-11 through 2026-09-03 failed before any case could be judged:
+  DeepSeek returned HTTP 400 because platform-synthesized tool turns carried
+  no `reasoning_content` (fixed 2026-09-04 by #59; dispatch run #131 and
+  scheduled run #132 on 2026-09-04 were green). Weekly Scientific Validation
+  runs #9–#11 (2026-08-16, 08-23, 08-30) failed on a shallow-clone guard
+  (fixed 2026-09-04 by #58; dispatch #12 on 2026-09-04 and scheduled #13 on
+  2026-09-06 were green). Daily runs #133–#136 (2026-09-05 through 09-08)
+  passed blind tests, integration and cobaya-parity but failed at the
+  evidence-log publish step, which fails the job on purpose (fixed 2026-09-09
+  by #76; the next scheduled run is its acceptance). None of these reds was a
+  fabrication escape, and none was closed by touching a claim gate.
 
 The full triage — including a 2026-07-01 addendum that corrects the original
 report's own window-selection mistake — is in
@@ -168,11 +219,31 @@ paper-level scientific answers. Zero A grades means zero A grades.
   is detectable; independent review remains required for publication.
 - **Research-grade (A-level) agreement has never been achieved** on the graded
   blind rounds (see §4).
+- **The platform itself emitted a fabricated identifier until 2026-09-04.**
+  Evidence Packs and DOI metadata carried `10.5281/standard-astro.<id>` — a
+  synthetic string under Zenodo's real prefix that never resolved. Since #34
+  (2026-09-04) the field is `doi: null` with `doi_status: not_minted`, packs
+  identify themselves by a content-addressed `urn:sha256` identifier, and the
+  repository is citable through `CITATION.cff`; no DOI has been minted. The
+  catch came from review, not from a gate: the anti-fabrication layer covers
+  scientific claims in replies, not the platform's own metadata.
+- **Exploration depth is pre-registered, not measured.** The v0.3
+  exploration-depth harness (#66, 2026-09-04) froze eight prompts, their
+  reachable tool sets and decision rules in
+  [standard_astro_v03_exploration_tasks.json](./research/standard_astro_v03_exploration_tasks.json)
+  under a committed sha256
+  ([commitment](./research/standard_astro_v03_exploration_tasks_commitment.json),
+  status `FROZEN_NOT_YET_RUN`, frozen 2026-09-03 at `3a7e6e4`). The task file
+  was revised four times before any sample was collected, and each revision is
+  recorded in the commitment. As of 2026-09-09 zero samples exist: no
+  premature-stop rate has been measured, and the handbook's
+  `premature_stop >= 25%` condition for building an exploration phase is
+  untested.
 
 ## 6. Check it yourself
 
 - Bare-LLM baseline (same model, no guardrails): [BARE_LLM_BASELINE_2026_07_09.md](./BARE_LLM_BASELINE_2026_07_09.md)
-- Offline Evidence Pack verifier (no backend install needed): [scripts/verify_evidence_pack.py](../scripts/verify_evidence_pack.py) with the committed out-of-band trust root [keys/evidence-keyring.json](../keys/evidence-keyring.json); a valid signature proves origin and integrity, not scientific truth.
+- Offline Evidence Pack verifier (no backend install needed): [scripts/verify_evidence_pack.py](../scripts/verify_evidence_pack.py) with the committed out-of-band trust root [keys/evidence-keyring.json](../keys/evidence-keyring.json); a valid signature proves origin and integrity, not scientific truth. As of 2026-09-09 the keyring holds no keys (`"keys": []`), so the verifier exits 1 with `keyring contains no keys` and no pack can yet be verified offline; the first signing key is published through the [key rotation runbook](./runbooks/EVIDENCE_V2_KEY_ROTATION.md).
 - Blind-suite case definitions: [cases.yaml](../backend/scripts/blind_test_cosmology_m0/cases.yaml)
 - Blind-suite README with the verified-defense table: [README](../backend/scripts/blind_test_cosmology_m0/README.md)
 - Gate-event triage report + self-correcting addendum: [GATE_EVENT_WEEKLY_REPORT_2026_06_30.md](./GATE_EVENT_WEEKLY_REPORT_2026_06_30.md)
@@ -180,15 +251,21 @@ paper-level scientific answers. Zero A grades means zero A grades.
 - The claim validator itself (numeric/citation gates) and its red-team corpus:
   `backend/app/services/claim_validator.py`,
   `backend/tests/_red_team_cases/numeric_claims.yaml`
-- Scheduled run history: the repository's GitHub Actions tab (`daily.yml`,
-  `ci.yml` — CI also re-runs the cosmology benchmark suite against published
-  anchor values on every push to main).
+- Scheduled run history: the repository's GitHub Actions tab — `daily.yml`
+  (16:17 UTC; jobs `blind-tests`, `integration`, `cobaya-parity`),
+  `scientific-validation.yml` ("Weekly Scientific Validation", Sundays
+  17:23 UTC; jobs `core-scientific-regression`,
+  `released-likelihood-parity`), and `ci.yml`, whose `benchmarks` job re-runs
+  the cosmology benchmark suite against published anchor values on every push
+  to main.
 - Live weekly literature runs — **self-run traffic, not organic users**:
   [cosmo-second-order](https://github.com/MikhailXiaomaikou/cosmo-second-order)
-  mines fresh astro-ph.CO papers for cross-paper tensions each week and runs
-  the executable subset through this platform; its reports quote the
-  gate-validated replies verbatim with their covariance-fidelity labels. The
-  first run (2026-07-09) verified two honest-abstention probes live (an
-  unclaimable spectral index; a requested-but-unregistered dataset disclosed
-  rather than silently substituted) and surfaced two platform defects, both
-  filed for fixes.
+  was set up to mine fresh astro-ph.CO papers for cross-paper tensions each
+  week and run the executable subset through this platform, quoting the
+  gate-validated replies verbatim with their covariance-fidelity labels. Only
+  its first run (2026-07-09) is on record here: it verified two
+  honest-abstention probes live (an unclaimable spectral index; a
+  requested-but-unregistered dataset disclosed rather than silently
+  substituted) and surfaced two platform defects, both filed for fixes. As of
+  2026-09-09 no later run report is linked from this page, so a sustained
+  weekly cadence has not been demonstrated.

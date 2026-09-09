@@ -12,14 +12,13 @@ backports or long-term support for older commits, forks, or deployments.
 
 ## Reporting a vulnerability
 
-Use GitHub's private vulnerability-reporting flow from the repository's
-**Security** tab when it is available. Do not include secrets, personal data,
-unpublished research data, or working exploit details in a public issue.
-
-If private reporting is unavailable, open a public issue containing only a
-request for a private maintainer contact. Keep all vulnerability details out of
-that issue. This repository does not publish a dedicated security email address
-at present.
+GitHub's private vulnerability-reporting flow (repository **Security** tab)
+is not enabled for this repository as of 2026-09-09. Until it is, open a
+public issue containing only a request for a private maintainer contact. Keep
+all vulnerability details out of that issue: do not include secrets, personal
+data, unpublished research data, or working exploit details. If the private
+flow is enabled later, use it instead. This repository does not publish a
+dedicated security email address at present.
 
 Please include, where applicable:
 

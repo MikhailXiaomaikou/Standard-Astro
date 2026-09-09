@@ -41,10 +41,10 @@ ExecutionBackend = Literal[
 ]
 
 REGISTRY_SCHEMA_VERSION: Final = "standard_astro_workflow_registry_v2"
-REGISTRY_EPOCH: Final = "2026-07-21.1"
+REGISTRY_EPOCH: Final = "2026-09-02.1"
 REGISTRY_STATUS: Final = "ACTIVE"
 REQUIREMENTS_LOCK_SHA256: Final = (
-    "1ad3021413d90076bfca5105f360cc53c2a716b59b2f828cc95e64715771529d"
+    "e921888a98ad582cdcfe74dde14d16cb753cac2786b4183ddf158ab361aaedd7"
 )
 CONTROL_IMAGE_BUILD_SPEC_SHA256: Final = (
     "04bce6bb5c0f2842ccff2aa8080a9dc9496732a18abc791515876d3f6bb62852"
@@ -911,6 +911,16 @@ def list_static_worker_entrypoint_capabilities(
     ]
 
 
+def _version_sort_key(version: str) -> tuple[tuple[int, int, str], ...]:
+    """Numeric-aware ordering so "1.10.0" outranks "1.2.0" (plain string
+    sort puts "1.10.0" first)."""
+
+    return tuple(
+        (0, int(part), "") if part.isdigit() else (1, 0, part)
+        for part in re.split(r"[.\-+]", version)
+    )
+
+
 def _workflow_indexes(
     snapshot: RegistrySnapshot,
 ) -> tuple[
@@ -929,7 +939,10 @@ def _workflow_indexes(
         active = [item for item in versions if item.state == "REGISTERED"]
         if len(active) > 1:
             raise WorkflowRegistryError("multiple_registered_workflow_versions")
-        by_id[workflow_id] = (active or versions)[-1]
+        by_id[workflow_id] = max(
+            active or versions,
+            key=lambda item: _version_sort_key(item.version),
+        )
     return by_identity, by_id
 
 

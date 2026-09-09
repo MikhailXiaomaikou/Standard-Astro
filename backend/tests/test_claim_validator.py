@@ -682,6 +682,65 @@ def test_sigma_semantics_are_bound_to_nearest_discourse_clause():
     ).ok is True
 
 
+def test_sigma_interval_exemption_never_swallows_comparative_significance():
+    # Regression (2026-07-23 review of 9a4f112): the interval-marker exemption
+    # keyed off nearby "posterior"/"constraint" wording, so fabricated
+    # comparative significances ("posteriors conflict at 4.6σ") extracted no
+    # claim at all and bypassed the numeric gate entirely. The exemption is
+    # now fail-closed: only 1σ/2σ/3σ coverage labels qualify, and the
+    # detection cue list covers comparative wording.
+    from app.services.claim_validator import extract_claims, validate_claims
+
+    fabricated = (
+        "The two posteriors conflict at 4.6 sigma given the S8 constraint.",
+        "The data favor w0waCDM at 4.2 sigma over the LCDM posterior.",
+        "KiDS and Planck clash at 3.0 sigma in the S8 constraint.",
+        "The posteriors disagree at 2 sigma in the joint constraint.",
+        "The posteriors are at odds at 2.5 sigma given the bound.",
+    )
+    for reply in fabricated:
+        assert any(
+            claim.label == "significance_sigma"
+            for claim in extract_claims(reply)
+        ), reply
+        assert validate_claims(reply, []).ok is False, reply
+
+    # Specificity: conventional coverage labels stay exempt.
+    for reply in (
+        "The 2σ upper bound on the neutrino mass sum.",
+        "Omega_m = 0.315 +/- 0.007 (1 sigma) from the posterior constraint.",
+    ):
+        assert not any(
+            claim.label == "significance_sigma"
+            for claim in extract_claims(reply)
+        ), reply
+
+
+def test_bare_modal_elsewhere_in_sentence_does_not_wash_strong_conclusion():
+    # Regression (2026-07-23 review): the non-assertive hedge list matched
+    # bare modals anywhere in the sentence, so appending "... and this result
+    # should appear in the abstract" washed an assertive conclusion out of
+    # the gate. Modals hedge only when they modify a conclusion-like verb.
+    from app.services.claim_validator import _strong_conclusion_from_sentence
+
+    washing = (
+        "Our joint fit shows dark energy evolves, and this result should "
+        "appear in the abstract.",
+        "The data reject LCDM; we should publish this immediately.",
+    )
+    for sentence in washing:
+        assert _strong_conclusion_from_sentence(sentence) is not None, sentence
+
+    hedged = (
+        "Dark energy may evolve according to this fit.",
+        "The tension might be resolved by new calibration.",
+        "w0waCDM could be preferred once full likelihoods are used.",
+        "Future data should help resolve the tension.",
+    )
+    for sentence in hedged:
+        assert _strong_conclusion_from_sentence(sentence) is None, sentence
+
+
 def test_one_sigma_value_with_error_keeps_central_value_semantics():
     from app.services.claim_validator import validate_claims
 
@@ -1049,6 +1108,160 @@ def test_blocked_reply_text_does_not_leak_internal_group_labels():
     assert "g1" not in text
     assert "67.0" in text
     assert "73.0" in text
+
+
+def test_verified_scalar_standardized_difference_is_not_typed_significance():
+    result = validate_claims(
+        "The absolute standardized difference is 4.5 sigma.",
+        [
+            {
+                "tool": "verify_scalar_derivation",
+                "input": {
+                    "quantities": [
+                        {"value": 67.6, "standard_uncertainty": 1.2},
+                        {"value": 73.0, "standard_uncertainty": 0.0},
+                    ]
+                },
+                "result": {
+                    "success": True,
+                    "calculation_status": "verified_deterministic",
+                    "claim_scopes": {
+                        "derived_numeric": True,
+                        "source_measurement": True,
+                    },
+                    "result": {
+                        "value": -5.4,
+                        "standard_uncertainty": 1.2,
+                        "standardized_difference_abs": 4.5,
+                    },
+                    "source_status": "verified_exact",
+                },
+            }
+        ],
+        require_typed_scientific_match=True,
+    )
+
+    assert not result.ok
+    assert [claim.label for claim in result.uncited] == ["significance_sigma"]
+
+
+def test_verified_scalar_standardized_difference_remains_claimable_as_number():
+    result = validate_claims(
+        "The absolute standardized difference is 4.5.",
+        [
+            {
+                "tool": "verify_scalar_derivation",
+                "input": {
+                    "quantities": [
+                        {"value": 67.6, "standard_uncertainty": 1.2},
+                        {"value": 73.0, "standard_uncertainty": 0.0},
+                    ]
+                },
+                "result": {
+                    "success": True,
+                    "calculation_status": "verified_deterministic",
+                    "claim_scopes": {
+                        "derived_numeric": True,
+                        "source_measurement": True,
+                    },
+                    "result": {
+                        "value": -5.4,
+                        "standard_uncertainty": 1.2,
+                        "standardized_difference_abs": 4.5,
+                    },
+                    "source_status": "verified_exact",
+                },
+            }
+        ],
+        require_typed_scientific_match=True,
+    )
+
+    assert result.ok, result.uncited
+
+
+def test_verified_scalar_propagated_error_survives_structural_anti_echo():
+    result = validate_claims(
+        "The controlled difference is -5.4 ± 1.2 km/s/Mpc.",
+        [
+            {
+                "tool": "verify_scalar_derivation",
+                "input": {
+                    "quantities": [
+                        {"value": 67.6, "standard_uncertainty": 1.2},
+                        {"value": 73.0, "standard_uncertainty": 0.0},
+                    ]
+                },
+                "result": {
+                    "success": True,
+                    "calculation_status": "verified_deterministic",
+                    "claim_scopes": {
+                        "derived_numeric": True,
+                        "source_measurement": True,
+                    },
+                    "result": {
+                        "value": -5.4,
+                        "standard_uncertainty": 1.2,
+                        "standardized_difference_abs": 4.5,
+                    },
+                },
+            }
+        ],
+    )
+
+    assert result.ok, result.uncited
+
+
+def test_linearized_scalar_ratio_remains_claimable_with_explicit_status():
+    result = validate_claims(
+        "The controlled first-order ratio is 0.5 +/- 0.1.",
+        [
+            {
+                "tool": "verify_scalar_derivation",
+                "input": {
+                    "quantities": [
+                        {"value": 10.0, "standard_uncertainty": 1.0},
+                        {"value": 20.0, "standard_uncertainty": 2.0},
+                    ]
+                },
+                "result": {
+                    "success": True,
+                    "calculation_status": "linearized_approximation",
+                    "claim_scopes": {
+                        "derived_numeric": True,
+                        "source_measurement": True,
+                    },
+                    "result": {
+                        "value": 0.5,
+                        "standard_uncertainty": 0.1,
+                        "uncertainty_method": "first_order_delta",
+                    },
+                },
+            }
+        ],
+    )
+
+    assert result.ok, result.uncited
+
+
+def test_untrusted_tool_cannot_mint_typed_scalar_significance():
+    result = validate_claims(
+        "The absolute standardized difference is 4.5 sigma.",
+        [
+            {
+                "tool": "run_python",
+                "result": {
+                    "success": True,
+                    "calculation_status": "verified",
+                    "claim_scopes": {"derived_numeric": True},
+                    "result": {"standardized_difference_abs": 4.5},
+                },
+            }
+        ],
+        require_typed_scientific_match=True,
+    )
+
+    assert not result.ok
+    assert [claim.label for claim in result.uncited] == ["significance_sigma"]
 
 
 def test_zero_data_qualitative_rewrite_prompt_allows_method_answer_without_numbers():

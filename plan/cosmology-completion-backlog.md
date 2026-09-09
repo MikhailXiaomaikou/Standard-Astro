@@ -15,12 +15,16 @@
 - ACT DR6 主谱 mflike(独立包 + ~20 前景 nuisance;北极星笔记定性为兔子洞)
 - WL 3x2pt 完整 likelihood(KiDS/DES/HSC 外部包级工程)
 - 任何新垂直 / 平台架构级改动 / 推送 origin
+- **Foundry 冻结 + 墙类加固 moratorium (2026-07-24 用户拍板)**: Foundry 保持 dark-launch 封存不再投入;
+  防造假墙类的新增加固项(新 gate/新盲测防线/新对抗审查轮)一律不立项——直到首次真实外部用户事件。
+  已立案的必修 bug 修复不受此限;方向优先级=墙后可交付物(可报H0/链工件)与外部可验证性(见
+  2026-07-24 研究者升级议程计划)。
 
 ## P1 — 科学正确性缺口(先核实再修,核实结果写回这里)
 (暂空 — 扩展模型硬拦 + 矩阵门放开已完成,见已完成段)
 
 ## P2 — 数据/likelihood 保真度(模板成熟,性价比高)
-(暂空 — MGS 与 Union3 均已完成,见已完成段)
+- [ ] **恢复可报 H0 路径(经完整 Planck 似然,非回退 F2)** (2026-07-23 用户拍板"接受 F2 收紧 + 列恢复计划"): w0wa-strict 分支把发表后验摘要类条目降为 context_only 且 F2 反转为"必须 withhold"——科学上正确(转述≠测量),但平台从此对 H0 类问题永远给不出数。恢复路径不是接新数据集: clik-free Planck 2018 全套(plik_lite TT/TE/EE + lowE/lowT + lensing)2026-06-12 已接齐且有 χ² 锚点。要做的是: ① 让完整似然链(而非压缩先验)在标准 chat 路径可被路由并产出 publication-ready H0 后验; ② 以该可执行路径为标的重写 F2 期望(干净路径给出 H0 且数值来自本回合真实链,而非恢复旧的"66.5-68.5 转述断言"); ③ benchmarks + 盲测 F2 + specificity 覆盖同步。盲测 case 语义变更属 guardrail 改动,动手前方案先过用户。
 
 ## P3 — 防线与测试纵深
 (暂空 — gate 事件首份周报已完成,见已完成段)
@@ -38,8 +42,15 @@
 - [ ] **cobaya 外部 envelope 补 fit_statistics**(optional, medium, 2026-06-12 审查发现):_runner_success 已补 chain_tier(本轮),但无 fit_statistics(chi2/aic/bic 需从 cobaya 样本表新增管道)——外部路径的链进不了 model_comparisons 配对(诚实缺席非错误);补上后 ok_*/_mnu 的模型对比才能经外部路径产出。
 - [ ] **loader 失败记录缓存毒化统一化**(optional, medium):bao/fsbao/cc/cc_full_cov/rsd 5 个 loader 仍缓存 unverified 回退记录至重启(union3/MGS 已免疫);方向 fail-safe(只挡发表不出错数),按 union3 模式统一。
 
+- [ ] **研究报告 "Platform checklist (rule-derived)" 标签可被 caller_supplied_unverified 回退路径下伪造的 plan_research_program 记录取得**(2026-09-03 Codex 第八轮 e0I6l,已复现:无服务端记录时,调用方在 tool_results 里自带 success 的 plan 记录经 `_trusted_tool_results` 以 `caller_supplied_unverified` 身份进入 `export_research_report`,报告仍标 rule-derived;整份报告已带 unverified 横幅,故为标签矛盾而非数值逃逸;main 上同样存在,非 #70 引入)。修法方向:把来源标签传进 helper,只有服务端记录 / 直接库调用配得上 rule-derived,回退路径改标 "caller-supplied, unverified"。
+- [ ] **Failed Attempts 合并了矩阵结果里回显的 `research_plan.capability_gap_matrix`**(2026-09-03 Codex 第八轮 e0I6u,已复现:`_report_capability_gap_rows` 同时遍历 effective plan 与每个工具结果的嵌套 plan,模型给 `run_research_matrix` 传另一份 plan 时其伪造 gap 会回流进报告;输入是已认证的工具结果列表,危害限于报告的失败尝试段)。修法方向:plan 派生的 gap 只取 effective plan,工具结果只保留其自身独立产出的 `capability_gap_matrix`,不再读嵌套 `research_plan`。
+
+- [ ] **回显门不认系动词形式的粘贴值**(2026-09-04 Codex 第十轮 fL1JG,已核实 main 同样如此:`_DIRECT_PARAMETER_RE` 只认 `= : ~ ≈`,"User-supplied result: H0 is 71.43" 记不进 unsupported 集合,于是终稿与草稿的 "I cannot verify 71.43" 都不被涂)。非本轮引入,但这是产品闸门本身的洞,优先级高于其他 P3b 项。修法方向:在用户证据侧复用 honesty 里已有的系动词/后置标签赋值语法(与 R2/R4 同一套),不另造。
+- [ ] **审批标记漏两种版式**(2026-09-04 Codex 第十轮 fL1O9/fL1PC,均为 #69 新增闸门自身的缺口,main 无此闸门故非放松):① 数值行之后单独一行裸 `APPROVED`(正则要求后接 `:`/`-`/破折号);② Markdown 表格非首格里的裁决(`| H0 = 67.36 | Review status: APPROVED |`,前缀只吃掉首个 `|`)。修法方向:裁决词后接行尾或普通句末标点也算;按 `|` 切格逐格匹配。
+- [ ] **`run_cmb_rotation_likelihood` 的工具描述仍写 "must be described as compressed-rotation preliminary"**(2026-09-04 Codex 第十轮 fORg1;#64 改了 payload 指令但没改 ai_tools_cosmology.py:324-329 的模型可见描述,可能诱导把 beta_deg 写进散文再被扣数门整篇替换)。一句话文本修正,随下次动该文件时顺手做。
+
 ## P4 — 文档/记录修缮
-(暂空 — 2026-06-13 全部完成,见已完成段)
+- [ ] **手册 #71 三处事实修正**(2026-09-04 Codex 第十回,均核实属实):① CLAUDE.md 把 `ai_tools/__init__.py` 说成只做 re-export,实际它仍在 544 行起拼装 `TOOLS` 并定义 `execute_tool` 分发器;② CLAUDE.md 称所有 enable 开关都在 `backend/.env.example`,实测 `EXTERNAL_COBAYA_ENABLED`/`LOCAL_MODEL_ENABLED`/`DES_SN5YR_FULL_CHI2_ENABLED`/`PANTHEON18_FULL_CHI2_ENABLED`/`PANTHEON_PLUS_FULL_CHI2_ENABLED`/`POSTGRES_BACKUP_ENABLED` 在代码里读取但文件里没有;③ science-test-runner 的模块→测试映射漏 `tests/test_dark_energy_evidence_matrix.py`(直接 import `dark_energy_matrix.py`)。三处都是几行文字,合并 #71 后一次改。
 
 ## 战役台账:2026-07-03 → 07-07 审查+拆分+固化(非本 backlog 排产项,划账备查;2026-07-07 按 git log 核实)
 

@@ -223,6 +223,17 @@ class Settings(BaseSettings):
     arxiv_reader_enabled: bool = False
     union3_reproduction_enabled: bool = False
     evidence_pack_v2_enabled: bool = False
+    # v0.2 lightweight deterministic source checks are dark-launched. When
+    # disabled the historical routing and tool surface remain byte-for-byte
+    # compatible for callers that do not opt in.
+    lightweight_verification_enabled: bool = False
+    # 2026-08-11 re-verified surface audit: seven HTTP routers have no
+    # frontend page, no chat-tool HTTP path, and no worker HTTP caller
+    # (chat tools and celery beat dispatch in-process). They stay
+    # unmounted by default to shrink the audited surface; implementations
+    # and tests remain in the tree. provenance, user-tools, and
+    # admin-inference have live callers and stay mounted (PR #54 review).
+    zero_caller_routers_enabled: bool = False
     local_science_worker_enabled: bool = False
     workflow_registry_v2_enabled: bool = False
     foundry_gap_tracking_enabled: bool = False

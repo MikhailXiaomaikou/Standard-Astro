@@ -3247,10 +3247,11 @@ def _explicit_joint_request(text: str) -> bool:
     (combine/jointly/together/joint fit) and either names both DESI and
     pre-DESI itself or refers back to them anaphorically ("combine them",
     "fit both jointly") after a clause that named the pair — provided no
-    alternative cue (alternatives/separately/each/either/instead/versus) has
-    intervened.  A joint word that joins something else ("each combined with
-    Planck CMB") does not override the alternative reading (Codex review on
-    #81, rounds 2, 4 and 5).  Such a request must reach the runner as one call
+    non-negated alternative cue (alternatives/separately/each/either/instead/
+    versus) has intervened.  "Do not run them separately" is a negated cue and
+    keeps the pair in scope; "each combined with Planck CMB" joins something
+    else and does not override the alternative reading (Codex review on #81,
+    rounds 2, 4, 5 and 6).  Such a request must reach the runner as one call
     so it can reject and explain the invalid overlap instead of being
     rewritten into legs."""
     prompt = str(text or "").lower()
@@ -3263,26 +3264,35 @@ def _explicit_joint_request(text: str) -> bool:
     anaphora = re.compile(
         r"\b(?:them|both|these|those|the\s+two|the\s+datasets?|the\s+releases|the\s+samples|the\s+pair)\b"
     )
-    negated = re.compile(
-        r"\b(?:do\s+not|don't|never|must\s+not|should\s+not|shouldn't|"
-        r"cannot|can't|without|instead\s+of)(?:\s+ever)?\s*$"
+    # A negation anywhere earlier in the clause flips the cue that follows it
+    # ("do not run ... separately", "without combining them", "never jointly").
+    negation = re.compile(
+        r"\b(?:do\s+not|don't|never|must\s+not|should\s+not|shouldn't|cannot|can't|"
+        r"not|no|without|instead\s+of|rather\s+than)\b"
     )
+
+    def _negated(clause: str, position: int) -> bool:
+        return bool(negation.search(clause[:position]))
+
     pair_named_recently = False
     for clause in re.split(r"[.;,\n]", prompt):
         names_pair = bool(
             re.search(r"\bpre[- ]desi\b", clause)
             and re.search(r"(?<!pre-)(?<!pre )\bdesi\b", clause)
         )
-        if alternative_cue.search(clause):
-            pair_named_recently = False
-            continue
         if names_pair:
             pair_named_recently = True
+        positive_alternative = any(
+            not _negated(clause, match.start()) for match in alternative_cue.finditer(clause)
+        )
+        if positive_alternative:
+            pair_named_recently = False
+            continue
         refers_to_pair = names_pair or (pair_named_recently and bool(anaphora.search(clause)))
         if not refers_to_pair:
             continue
         for match in joint_word.finditer(clause):
-            if not negated.search(clause[max(0, match.start() - 40): match.start()]):
+            if not _negated(clause, match.start()):
                 return True
     return False
 

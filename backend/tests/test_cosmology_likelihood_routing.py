@@ -3333,7 +3333,14 @@ def test_explicit_joint_desi_and_pre_desi_request_stays_one_call_for_the_runner_
     assert {"desi_dr1_bao", "sdss_6df_bao"} <= set(anaphoric_legs[0]), anaphoric_legs
     # ... but a negated anaphora, or an intervening alternative cue, does not.
     assert _explicit_joint_request("Run DESI and pre-DESI BAO; do not combine them.") is False
+    assert _explicit_joint_request("Run DESI and pre-DESI BAO; do not run them jointly.") is False
     assert _explicit_joint_request(
         "Run DESI and pre-DESI BAO as alternatives; combine each with Planck CMB."
     ) is False
+    # A NEGATED separate cue keeps the pair in scope (round 6).
+    negated_separate = "Do not run DESI and pre-DESI BAO separately; combine them in one joint fit."
+    assert _explicit_joint_request(negated_separate) is True
+    negated_legs = [call["input"]["dataset_keys"] for call in _cosmology_likelihood_run_calls_from_prompt(negated_separate)]
+    assert len(negated_legs) == 1 and {"desi_dr1_bao", "sdss_6df_bao"} <= set(negated_legs[0]), negated_legs
+    assert _explicit_joint_request("Run DESI and pre-DESI BAO jointly, not separately.") is True
 

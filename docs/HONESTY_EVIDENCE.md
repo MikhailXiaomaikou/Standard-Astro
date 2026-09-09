@@ -8,7 +8,15 @@ here requires installing anything: every claim links to a source document,
 test case, or CI run in this public repository.
 
 Numbers below are copied from the linked sources as of 2026-07-10; the linked
-documents are authoritative if they diverge.
+documents are authoritative if they diverge. Since 2026-07-24, each daily
+blind run also appends its mechanical summary and per-file sha256 hashes to
+the append-only
+[`evidence-log` branch](https://github.com/MikhailXiaomaikou/Standard-Astro/tree/evidence-log)
+(`log/<date>-<run_id>/`), so outcomes stay checkable after the 90-day CI
+artifact retention expires. Full transcripts are not published — only their
+hashes, which can be reconciled against the run's artifact while it exists.
+This is a git audit log protected against force-push, not a cryptographic
+transparency log (an external anchor such as Rekor is a possible upgrade).
 
 ## 1. Archived DESI cross-check: useful, but not a validated reproduction
 
@@ -76,7 +84,7 @@ suspicious author-year citation; that event is recorded in
 [the gate-event report](./GATE_EVENT_WEEKLY_REPORT_2026_06_30.md) (trigger
 "Riess et al. 2022"). Note the blind-test README's defense table uses the
 original 10-case suite numbering; the current
-[cases.yaml](../backend/scripts/blind_test_cosmology_m0/cases.yaml) has 16
+[cases.yaml](../backend/scripts/blind_test_cosmology_m0/cases.yaml) has 18
 cases and reuses the "D1" label for an unrelated routing case.
 
 The suite runs on a scheduled GitHub Actions workflow (`daily.yml`) against a
@@ -164,6 +172,7 @@ paper-level scientific answers. Zero A grades means zero A grades.
 ## 6. Check it yourself
 
 - Bare-LLM baseline (same model, no guardrails): [BARE_LLM_BASELINE_2026_07_09.md](./BARE_LLM_BASELINE_2026_07_09.md)
+- Offline Evidence Pack verifier (no backend install needed): [scripts/verify_evidence_pack.py](../scripts/verify_evidence_pack.py) with the committed out-of-band trust root [keys/evidence-keyring.json](../keys/evidence-keyring.json); a valid signature proves origin and integrity, not scientific truth.
 - Blind-suite case definitions: [cases.yaml](../backend/scripts/blind_test_cosmology_m0/cases.yaml)
 - Blind-suite README with the verified-defense table: [README](../backend/scripts/blind_test_cosmology_m0/README.md)
 - Gate-event triage report + self-correcting addendum: [GATE_EVENT_WEEKLY_REPORT_2026_06_30.md](./GATE_EVENT_WEEKLY_REPORT_2026_06_30.md)

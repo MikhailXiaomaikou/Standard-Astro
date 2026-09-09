@@ -219,3 +219,64 @@ def test_planck_compressed_plus_act_lensing_chain_is_not_publication_ready():
     )
     assert result["publication_ready"] is False
     assert result["chain_tier"] != "publication"
+
+
+# ── (f) 2026-09-09 physics-rigor audit: undeclared overlaps + reciprocity ───
+# sdss_6df_bao's MGS z=0.15 point comes from the same galaxies as the
+# eboss_dr16_rsd MGS fσ8 point (no vendored cross-covariance), and the MGS /
+# eBOSS tracers behind both entries are re-observed by DESI (the key papers
+# replace SDSS rather than co-add).  Union3 and SH0ES also carried no reverse
+# edges at all — harmless for _combination_warnings (which checks both
+# directions) but a registry that documents an overlap on one side only is a
+# maintenance trap, so every edge is now required to be reciprocal.
+
+AUDIT_2026_09_09_PAIRS = [
+    ("sdss_6df_bao", "eboss_dr16_rsd"),
+    ("sdss_6df_bao", "desi_dr1_bao"),
+    ("sdss_6df_bao", "desi_dr2_bao"),
+    ("eboss_dr16_rsd", "desi_dr1_bao"),
+    ("eboss_dr16_rsd", "desi_dr2_bao"),
+    ("union3", "pantheon_plus"),
+    ("union3", "des_sn5yr"),
+    ("union3", "pantheon18"),
+    ("shoes_h0_riess22", "pantheon_plus"),
+    ("shoes_h0_riess22", "trgb_h0_freedman19"),
+    ("shoes_h0_riess22", "cchp_h0_freedman24"),
+    ("trgb_h0_freedman19", "cchp_h0_freedman24"),
+]
+
+
+@pytest.mark.parametrize(("key_a", "key_b"), AUDIT_2026_09_09_PAIRS)
+def test_audit_overlap_pairs_are_declared_reciprocally(key_a, key_b):
+    a = cl.get_cosmology_dataset(key_a)
+    b = cl.get_cosmology_dataset(key_b)
+    assert key_b in a.do_not_combine_with, (key_a, key_b)
+    assert key_a in b.do_not_combine_with, (key_b, key_a)
+    assert _warns(key_a, key_b)
+
+
+def test_every_do_not_combine_edge_is_reciprocal_and_resolvable():
+    from app.services.cosmology_likelihoods.registry import _REGISTRY
+
+    broken = []
+    for key, entry in _REGISTRY.items():
+        for other in entry.do_not_combine_with:
+            if other not in _REGISTRY:
+                broken.append(f"{key} -> {other}: unknown key")
+            elif key not in _REGISTRY[other].do_not_combine_with:
+                broken.append(f"{key} -> {other}: not reciprocated")
+            if other == key:
+                broken.append(f"{key}: lists itself")
+    assert broken == [], broken
+
+
+def test_sdss_6df_plus_desi_chain_is_not_publication_ready():
+    result = run_likelihood_chain(
+        model="lcdm",
+        dataset_keys=["sdss_6df_bao", "desi_dr1_bao"],
+        random_seed=123,
+        n_samples=1024,
+    )
+    assert result["publication_ready"] is False
+    assert result["chain_tier"] != "publication"
+    assert "overlapping_dataset_combination" in result["preliminary_reasons"]

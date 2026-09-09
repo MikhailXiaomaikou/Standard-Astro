@@ -35,6 +35,11 @@ need entries unless they change user-visible behavior or research validity.
   emcee runs label whether the autocorrelation estimate rests on walkers at
   least 50 autocorrelation times long; the prior-dominance screen flags a
   posterior that merely fills its flat prior (e.g. r_d in BAO-only runs).
+- Claim validator: the new run diagnostics (`prior_dominance_screen`,
+  `autocorr_chain_length_in_tau`, `__exploratory_warning__` prose), registry
+  identifiers (dataset keys, `do_not_combine_with`, paths) and the
+  `coverage_provenance` digests no longer enter the claimable numeric
+  universe; four red-team corpus cases pin the closed laundering paths.
 - Documentation and labels: cosmology-smoke skill aligned with the real tier
   semantics; τ prior relabelled as the TT,TE,EE+lowE posterior standing in
   for lowE; Pantheon+ / DES-SN5YR notes corrected; growth-index accuracy,

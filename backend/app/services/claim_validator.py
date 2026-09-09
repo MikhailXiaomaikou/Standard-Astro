@@ -1233,6 +1233,10 @@ _METADATA_KEYS_BLACKLIST: frozenset[str] = frozenset({
     "package_versions", "cobaya_info",
     "n_walkers", "n_steps", "n_burn", "n_samples", "n_rows",
     "input_rows_verified",
+    # emcee chain length in units of the autocorrelation time (2026-09-09
+    # audit follow-up): a sampler-health ratio, not a measurement — the
+    # anti-fabrication review grounded a fabricated "chi2 = 64.91" on it.
+    "autocorr_chain_length_in_tau",
     # Result status flags (mostly strings or bools, but occasionally a code)
     "success", "error_class", "argument", "error_code",
     "analysis_status", "__tool_status__", "data_origin",
@@ -1284,6 +1288,18 @@ _CITATION_KEYS_BLACKLIST: frozenset[str] = frozenset({
     # input) is the same hex-digit-run class — and it is derived from
     # attacker-influenced input (2026-06-12 review #7/#11/#15).
     "input_hash",
+    # Registry coverage provenance (2026-09-09 review): the Pantheon+ entry
+    # emits its vendored-file digest and the upstream git sha under these two
+    # names, which the exact-name matches above missed — digit runs of the
+    # digest ("35", "286", "6347") validated fabricated counts.
+    "data_product_sha256", "upstream_version",
+    # Registry identifiers (2026-09-09 review): dataset keys such as
+    # "pantheon18", "trgb_h0_freedman19", "desi_dr2_bao" or "sdss_6df_bao"
+    # tokenise to bare integers when a full registry entry (datasets_used) or
+    # a key list rides along in a result. They are names, never measurements.
+    "key", "dataset_key", "dataset_keys", "do_not_combine_with",
+    "known_overlap", "recommended_combinations", "independence_group",
+    "research_roles", "cobaya_likelihood", "cosmosis_module", "local_path",
 })
 
 
@@ -1336,6 +1352,11 @@ _NON_EVIDENCE_KEYS: frozenset[str] = frozenset({
     # manifest's attested chain_artifacts records, whose diagnostics must
     # stay in the universe if they ever surface in a chat result.
     "chain_downloads",
+    # Prior-dominance screen (2026-09-09 audit follow-up): its per-parameter
+    # fractions (edge mass, prior-width ratio, 94% HDI / prior width) are
+    # diagnostics of the run, never measurements of the sky; the review
+    # grounded fabricated "p = 0.0507" / "mean = 0.0889" claims on them.
+    "prior_dominance_screen",
 })
 
 
@@ -1403,7 +1424,7 @@ _COSMOLOGY_MANIFEST_KEYS: frozenset[str] = frozenset({
 _FREETEXT_KEYS: frozenset[str] = frozenset({
     # result_provenance banner fields
     "__message_to_model__", "__suggested_next_step__", "__partial_output__",
-    "__do_not_claim__",
+    "__do_not_claim__", "__exploratory_warning__",
     # generic prose / diagnostic fields
     "message", "msg", "note", "notes", "error", "error_message",
     "detail", "details", "rationale", "explanation", "reason",

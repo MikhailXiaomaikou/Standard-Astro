@@ -58,8 +58,10 @@ need entries unless they change user-visible behavior or research validity.
   tasks as the primary endpoint) with a sha256 commitment
   (`frozen_at` 2026-09-03 at `3a7e6e4`, status `FROZEN_NOT_YET_RUN`), the
   `run_exploration_matrix.sh` clean-terminal wrapper, `--budget` /
-  `--lightweight` / `--arm` / trace options on
-  `evaluate_standard_astro_v02.py` (default invocation unchanged), and a
+  `--lightweight` / `--steering` / `--arm` / `--system-appendix` /
+  `--lane-override` / `--record-pregate-drafts` options on
+  `evaluate_standard_astro_v02.py` plus a per-sample tool trace on every
+  record (default invocation otherwise unchanged), and a
   scorer with `premature_stop` as the boolean primary endpoint, Wilson
   intervals, and strata that are never merged into a headline. No samples
   have been collected; the `exploration_phase_enabled` decision rule in the
@@ -84,9 +86,9 @@ need entries unless they change user-visible behavior or research validity.
   isochrone/transit/CCD reference material does not override the
   cosmology-only scope rule (#62). The runtime prompts (`base.md`,
   `core/infrastructure.md`, the cosmology `prompt.md`/`appendix.md`) and
-  the handbook were then consolidated (2,260 lines removed and 1,014 added
-  across those five files; `base.md` went from 847 to 235 lines; commits
-  965b0b9, 463a592, 6ba992e without a PR). Existing prompt assertions and
+  the handbook were then consolidated from 2,284 to 1,071 lines across
+  those five files (2,260 lines removed, 1,047 added; `base.md` went from
+  847 to 235 lines; commits 965b0b9, 463a592, 6ba992e without a PR). Existing prompt assertions and
   the numeric red-team cases pass; the model-in-loop blind subset and a
   HEAD rerun baseline were explicitly not claimed by those commits and none
   is recorded in the tree.
@@ -500,12 +502,17 @@ highlights (122 commits; per-change detail lives in the git log and
   record template (`docs/HIDDEN_PAPER_RECORD_TEMPLATE.md`), kept out of prompt context.
 
 - Scope note (2026-09-09): the Exoplanet and Solar System modules, their
-  tools, and the dormant module manifests described in the entries below
-  are no longer in this repository. The public history begins on 2026-07-20
-  (`35825d3`) with `backend/app/prompts/modules/cosmology` as the only
-  module; `ASTRO_RESEARCH_FOCUS` accepts only `cosmology` and does not
-  restore removed modules. The entries are kept as history of the M0/M1
-  campaign, not as a description of the current tool surface.
+  20 tools, and the dormant module manifests described in the entries below
+  are no longer in this repository. Both verticals were extracted to the
+  sibling `standard-astro-verticals` repository on 2026-06-03 (recorded in
+  `prompt_loader.py`, `api/chat.py`, `DEPLOYMENT.md`, and the archived
+  `plan/*-m0-completion.md` notes); the public history of this repository
+  begins on 2026-07-20 (`35825d3`) with `backend/app/prompts/modules/cosmology`
+  as the only module. `ASTRO_RESEARCH_FOCUS=cosmology` is the default, `all`
+  is an admin/debug escape hatch that exposes every retained tool, and any
+  other value fails closed to the cosmology allowlist; no value restores the
+  removed modules. The entries are kept as history of the M0/M1 campaign,
+  not as a description of the current tool surface.
 - Added the **Exoplanet** research module (M0, 2026-05-20 to 2026-05-21) —
   third active vertical after cosmology and solar_system. Reuses the 6-layer
   template (Karpathy 三相似临界 — ModuleRegistry abstraction now eligible).

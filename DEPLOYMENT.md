@@ -49,9 +49,14 @@ therefore requires explicit operator approval. Follow
 [`docs/PRODUCTION_CUTOVER_CHECKLIST.md`](./docs/PRODUCTION_CUTOVER_CHECKLIST.md);
 do not treat a green CI run as authorization to provision paid resources.
 
-Target-topology pushes to `main` deploy only after linked CI checks pass. Before
-the backend starts, Render runs `alembic upgrade head` and `alembic check` with
-`APP_ROLE=migration`; migration failure blocks the deploy without loading the
+Only the static frontend auto-deploys from `main` after linked CI checks pass
+(`autoDeployTrigger: checksPass`). Since #20 (2026-07-21) the backend, control
+worker, and beat services set `autoDeployTrigger: off`; they are deployed as
+exact commits through the Render API by the
+`Activate Foundry Registry on exact Render commit` workflow
+(`.github/workflows/foundry-registry-activation.yml`), which refuses to run if
+auto deploy is not off for those services. Before the backend starts, Render
+runs `alembic upgrade head` and `alembic check` with `APP_ROLE=migration`; migration failure blocks the deploy without loading the
 API role's login, privacy, or administrator-secret requirements.
 Render deploys workers independently, so worker and beat run the read-only
 `scripts/wait_for_schema_head.py` gate before Celery starts. They poll until the
@@ -200,6 +205,18 @@ JWT rotation, retain that old JWT value in the same map under a descriptive id
 such as `legacy-jwt-2026-07`. Unknown key ids and keyless new-schema records fail
 closed.
 
+Evidence Pack v2 uses a separate Ed25519 key family
+(`EVIDENCE_V2_SIGNING_PRIVATE_KEY`, `EVIDENCE_V2_SIGNING_KEY_ID`,
+`EVIDENCE_V2_SIGNING_PUBLIC_KEY`, `EVIDENCE_V2_VERIFICATION_KEYS`; all
+`sync: false`) and stays dark behind `EVIDENCE_PACK_V2_ENABLED=false`. Since #34
+(2026-09-04) the committed `keys/evidence-keyring.json` is the out-of-band trust
+root for the offline verifier and must match what the service serves at
+`/.well-known/standard-astro-evidence-keys.json`; as of 2026-09-09 it holds no
+keys. Generate the first key with
+`backend/scripts/ops/generate_evidence_v2_keypair.py` and follow
+[`docs/runbooks/EVIDENCE_V2_KEY_ROTATION.md`](./docs/runbooks/EVIDENCE_V2_KEY_ROTATION.md)
+before enabling the flag.
+
 Long-job worker defaults (all values are seconds):
 
 ```bash
@@ -232,7 +249,15 @@ GOOGLE_CLIENT_SECRET=...
 ADMIN_SECRET=<random-hex-32>
 PROVENANCE_VALIDATOR_HARDBLOCK=true          # default; set false only for an emergency warn-only downgrade
 ASTRO_RESEARCH_FOCUS=cosmology          # cosmology | all  (any other value fails closed to cosmology)
+ZERO_CALLER_ROUTERS_ENABLED=false       # default; the Blueprint does not set it
 ```
+
+Since #54 (2026-08-11) the `citation_graph`, `crossmatch`, `integration`,
+`isochrones`, `pipeline`, `scheduler`, and `workspace` routers have no
+frontend, chat-tool, or worker HTTP caller and are unmounted unless
+`ZERO_CALLER_ROUTERS_ENABLED=1`. `render.yaml` leaves it unset, so the
+production target does not serve those routes; their implementations and tests
+remain in the tree.
 
 `PROVENANCE_VALIDATOR_HARDBLOCK` defaults to hard-block mode. Leave it unset or set it to `true` so provenance-v2 citation violations block replies. Set it to `false` only as a temporary emergency downgrade to warning-only behavior.
 
@@ -381,8 +406,8 @@ Supported values:
 
 | Value | Active prompt + tool surface | Active provenance-v2 connectors surfaced |
 |---|---|---|
-| `cosmology` (default) | `modules/cosmology` (57 tools incl. shared core/infrastructure) — BAO / SN / CMB / lensing likelihood workflow, literature-table / line-relation workflow, dataset registry, compressed-likelihood runner | VizieR, Gaia DR3, SIMBAD, NED, 2MASS, ALMA observation metadata |
-| `all` | All modules loaded, no L1 tool filtering (exposes the full 77-tool catalog incl. retained dormant tools) | All active v2 connectors |
+| `cosmology` (default) | `modules/cosmology` (61 manifest tools incl. shared core/infrastructure; 60 wire-visible while `LIGHTWEIGHT_VERIFICATION_ENABLED=false`, the default, because `verify_scalar_derivation` is stripped; measured 2026-09-09) — BAO / SN / CMB / lensing likelihood workflow, literature-table / line-relation workflow, dataset registry, compressed-likelihood runner | VizieR, Gaia DR3, SIMBAD, NED, 2MASS, ALMA observation metadata |
+| `all` | All modules loaded, no L1 tool filtering (exposes the full catalog: 81 schemas, 80 while `LIGHTWEIGHT_VERIFICATION_ENABLED=false`, incl. retained dormant tools; measured 2026-09-09) | All active v2 connectors |
 | anything else (empty / typo / stale `solar_system` pin) | **Fails closed** to the `cosmology` allowlist | The cosmology connector set |
 
 Authoritative source-of-truth: `backend/app/connectors/availability.py` `V2_AVAILABLE_CONNECTORS` (and the mirror in `backend/app/services/source_mapping.py`, enforced by `backend/tests/test_source_mapping.py`). Human-facing status: [docs/SOURCE_MAPPING.md](./docs/SOURCE_MAPPING.md).
@@ -390,7 +415,7 @@ Authoritative source-of-truth: `backend/app/connectors/availability.py` `V2_AVAI
 Deployment patterns:
 
 1. **Single-focus process (recommended for prod).** Leave `ASTRO_RESEARCH_FOCUS=cosmology` (the `render.yaml` default) on `standard-astro-backend`.
-2. **Unified `all` deployment (development only).** Setting `ASTRO_RESEARCH_FOCUS=all` disables the L1 hard gate. Useful for local cross-module testing of retained dormant tools; do not use in production because the LLM sees the full 77-tool catalog plus all module prompts and quickly exhausts its context budget.
+2. **Unified `all` deployment (development only).** Setting `ASTRO_RESEARCH_FOCUS=all` disables the L1 hard gate. Useful for local cross-module testing of retained dormant tools; do not use in production because the LLM sees the full ~80-tool catalog plus all module prompts and quickly exhausts its context budget.
 
 Any focus literal other than `all` (including a stale `solar_system` / `exoplanet` pin left over from before the extraction) **fails closed** to the cosmology allowlist — it never silently exposes the full tool surface under a cosmology-only prompt.
 

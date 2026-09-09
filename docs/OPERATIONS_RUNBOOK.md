@@ -59,11 +59,15 @@ Production schema changes have exactly one writer: Alembic.
    UUID rolls every earlier type conversion back without changing data,
    constraints, tables, or revision. CI also builds the backend and frontend
    images from source-pinned base-image digests.
-2. Render waits for required GitHub checks because every deployable service uses
-   `autoDeployTrigger: checksPass`.
-3. The backend image runs `alembic upgrade head` as its
-   `preDeployCommand`. A migration failure prevents the new release from
-   starting.
+2. Only the static frontend auto-deploys after required GitHub checks pass
+   (`autoDeployTrigger: checksPass`). Since #20 (2026-07-21) the backend,
+   control worker, and beat set `autoDeployTrigger: off` and are deployed as
+   exact commits through the Render API by
+   `.github/workflows/foundry-registry-activation.yml`, which first verifies
+   that auto deploy is off for those three services.
+3. The backend image runs `alembic upgrade head` and `alembic check` under
+   `APP_ROLE=migration` as its `preDeployCommand`. A migration failure prevents
+   the new release from starting.
 4. Worker and beat independently run `scripts/wait_for_schema_head.py` before
    `exec celery`. They are read-only schema consumers and wait up to 15 minutes
    for the backend's migration; they never race new task code against the old
@@ -349,6 +353,17 @@ Schema-v1 records have no key id and were signed with the then-current
 `EVIDENCE_VERIFICATION_KEYS` under a descriptive id such as
 `legacy-jwt-2026-07`; the verifier tries retained keys only for those legacy
 records. Never place secret values in the backup manifest.
+
+This procedure covers the HMAC evidence key used by server tool-evidence
+records. Evidence Pack v2 (dark behind `EVIDENCE_PACK_V2_ENABLED=false`) is
+signed with the separate Ed25519 `EVIDENCE_V2_*` keys and is anchored in two
+places that must agree: the committed public keyring
+`keys/evidence-keyring.json` (empty as of 2026-09-09) and the served
+`/.well-known/standard-astro-evidence-keys.json`. Generate, rotate, and revoke
+those keys only by the procedure in
+`docs/runbooks/EVIDENCE_V2_KEY_ROTATION.md`; the keyring change is committed
+before any signing with a new key, and the offline verifier
+`scripts/verify_evidence_pack.py` trusts the repo file, not the server.
 
 ## 5. Restore procedure
 

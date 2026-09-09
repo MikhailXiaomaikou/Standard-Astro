@@ -60,8 +60,8 @@ Rules:
 
 ## Observational Cosmology Registry
 
-The cosmology likelihood registry (34 entries as of 2026-06-13; live count
-via `backend/scripts/audit_registry.py`) has grown far past the original
+The cosmology likelihood registry (34 entries, all audit-clean as of
+2026-09-09; live count via `backend/scripts/audit_registry.py`) has grown far past the original
 phase-1 compressed-Gaussian description. Three execution classes now exist:
 
 1. **In-process executable likelihoods over released, sha256-pinned data
@@ -84,6 +84,12 @@ phase-1 compressed-Gaussian description. Three execution classes now exist:
    and lensing — where extended-model axes (mnu, omegak) are genuinely
    sampled. The in-process compressed path hard-refuses ok_*/*_mnu model
    names rather than relabeling LambdaCDM-shaped chains.
+   A platform-exact Planck-2018-native LCDM H0 chain is pre-registered in
+   `backend/scripts/cobaya/platform_h0_prereg.json` (#36, 2026-09-05; produced
+   by `produce_platform_chain.py` through the same `_build_cobaya_yaml` path).
+   Its formal run has not been executed, so it provides no claimable H0 value
+   yet; like the DESI w0wa profile it remains `WITHHELD` until the committed
+   chains exist.
 3. **Role-approved scalar external measurements** (SH0ES/TRGB/CCHP/
    megamaser H0, plus the flat-LCDM-only H0LiCOW scalar): these may enter the
    preliminary Gaussian runner only within their declared model/overlap scope.

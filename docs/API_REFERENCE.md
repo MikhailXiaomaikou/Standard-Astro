@@ -45,7 +45,6 @@ Obtain a token via:
 | GET | `/api/data/workspace` | List workspace files |
 | POST | `/api/data/fits/upload` | Upload FITS file (returns type detection) |
 | GET | `/api/data/fits-header?fits_path=...` | Read FITS headers + HDU structure |
-| POST | `/api/integration/votable/upload` | Upload + convert VOTable to FITS |
 
 There is no public ADQL HTTP endpoint: `POST /api/integration/adql/query` was
 removed on 2026-06-11 with the M3 frontend trim. ADQL execution now happens
@@ -89,7 +88,11 @@ targets outside the source resolver. A `verified_exact` receipt verifies the
 requested labels and values in the scoped source region. It does not validate
 the paper's method or make the result publication-ready.
 
-### Pipeline
+### Pipeline (unmounted by default)
+
+The `pipeline` router has no frontend, chat-tool, or worker HTTP caller and is
+unmounted by default since #54 (2026-08-11). Set `ZERO_CALLER_ROUTERS_ENABLED=1`
+to remount it; the routes below then become available.
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -144,7 +147,11 @@ For literature-derived measurement workflows, `search_literature` is paper/abstr
 | POST | `/api/team/pipelines/{template_id}/share` | Share pipeline template |
 | POST | `/api/team/datasets/{file_id}/share` | Share dataset |
 
-### VO Interoperability
+### VO Interoperability (unmounted by default)
+
+The `integration` router (SAMP, VOTable upload, Jupyter export) is unmounted by
+default since #54 (2026-08-11) and is served only with
+`ZERO_CALLER_ROUTERS_ENABLED=1`. When mounted:
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -156,11 +163,11 @@ For literature-derived measurement workflows, `search_literature` is paper/abstr
 
 | Endpoint Group | Limit |
 |----------------|-------|
-| Authentication | 3-10/minute |
-| Data search | 30/minute |
-| ADQL queries | 20/minute |
+| Authentication | 3-20/minute (setup-key login 3, invitation redeem 5, register/login 10, Google 20) |
+| Data search | 30/minute (`/api/data/search`), 20/minute (`/api/data/advanced-search`) |
 | Chat (AI) | 15/minute |
-| Pipeline runs | 5/minute |
+| Public Evidence Pack verification | 10/minute |
+| Pipeline runs (only when `ZERO_CALLER_ROUTERS_ENABLED=1`) | 20/minute run, 5/minute batch-run |
 | General API | 100/minute |
 
 Daily quotas apply per subscription tier (solo/lab/institution).

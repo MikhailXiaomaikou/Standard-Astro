@@ -13,7 +13,7 @@ Welcome to Standard Astro, an AI-native observational-cosmology research platfor
 | "Build a DESI DR2 BAO + BBN likelihood and report the constraints" | Runs `build_cosmology_likelihood` then `fit_cosmology_mcmc` |
 | "Compute the Planck 2018 theory CMB TT power spectrum" | Runs `compute_theory_cmb_spectrum` (in-process CAMB) |
 | "Search for the 10 brightest quasars with z > 2" | Shared catalog tools (`search_objects` over SIMBAD, `run_adql`). They are allowlisted, but the cosmology prompt only runs catalog queries that serve a cosmology workflow; otherwise expect an explanation and a supported alternative |
-| "Plot an HR diagram of stars within 50 pc" | **Not a first-run example under cosmology focus.** `query_gaia_cluster` and `run_adql` are allowlisted, but the cosmology prompt (`backend/app/prompts/modules/cosmology/appendix.md`, tightened 2026-09-04) declines stellar workflows instead of running them through a generic helper |
+| "Plot an HR diagram of stars within 50 pc" | **Not a first-run example under cosmology focus.** `query_gaia_cluster` and `run_adql` are allowlisted, but the cosmology scope rule (`backend/app/prompts/modules/cosmology/appendix.md`, which has declined non-cosmology topics since before the 2026-08-07 check; current wording 2026-09-05) declines stellar workflows instead of running them through a generic helper |
 | "Find recent papers about Type Ia supernovae" | Searches NASA ADS — **requires `ADS_API_KEY`**, see note below |
 | "Fit the [CII] luminosity vs FWHM relation from these cited tables" | Runs `extract_literature_tables` then `fit_line_lfr` |
 | "From DESI DR2 Table 4, compute `(17.351±0.177)/(19.455±0.330)` with `ρ=-0.404`" | When the v0.2 flag is enabled, routes to the controlled scalar verifier and returns a source/uncertainty receipt |
@@ -24,7 +24,7 @@ The cosmology examples come first because that is the platform's focus, and they
 
 > Spectrum-analysis tools (`analyze_spectrum`) also exist, but they take a FITS file path on the backend filesystem — a fresh deployment has no FITS files, so that is not a first-run example.
 
-*(Example verification status, as of 2026-09-09: every tool named above is registered and visible under cosmology focus via `build_allowed_tools("cosmology")` (61 tools, live import). The exact prompts have not been re-run end-to-end since the 2026-09-04 cosmology scope tightening (#62); the two non-cosmology rows are expected to be declined by the prompt even though their tools are allowlisted, and actual routing also depends on the model provider you configure.)*
+*(Example verification status, as of 2026-09-09: every tool named above is registered and visible under cosmology focus via `build_allowed_tools("cosmology")` (61 tools, live import). The exact prompts have not been re-run end-to-end since the 2026-08-07 check, and the cosmology scope rule in `appendix.md` has been revised since then (#62 on 2026-09-04, prompt refresh on 2026-09-05); the two non-cosmology rows are expected, not measured, to be declined by the prompt even though their tools are allowlisted, and actual routing also depends on the model provider you configure.)*
 
 The AI has access to a global tool catalog of **81 tools** (live import,
 2026-09-09) covering search, literature, statistics, observational-cosmology
@@ -66,7 +66,7 @@ After completing an analysis in the AI Assistant, you have several export option
 **From the AI Assistant (chat header buttons, once the session has messages):**
 - **Export** (Markdown), **HTML** (self-contained, figures embedded), **Notebook** (`.ipynb` via `POST /api/export/notebook/from-chat`), **LaTeX**, **BibTeX**
 - **Generate Paper Draft** builds a draft from the saved session (`/api/paper/generate`; the journal format defaults to AASTeX, with MNRAS and A&A selectable) and opens it in an editor
-- The **Next Steps panel** sends prompts to the model. No chat *tool* writes a notebook or paper file under cosmology focus, so asking in plain text gets an explanation rather than a download; use the header buttons for files
+- The **Next Steps panel** sends prompts to the model. No chat *tool* writes a notebook file, and the only tool-side paper text is the `paper_draft.md` entry that `export_research_report` returns inside its report card (below), listed rather than downloadable; asking in plain text for a notebook or an AASTeX draft gets an explanation rather than a file, so use the header buttons for files
 
 A research-report export (`export_research_report`, since 2026-09-05) is a fixed 13-section Markdown document (Scientific Question, Why it matters, Research Plan, Data Sources, Methods, Execution Trace, Failed Attempts, Findings, Alternative Explanations, Uncertainty, Reproducibility Package, Human Review Checklist, Draft Scientific Claim) plus a `report_package` listing five files, each with its real byte count and the result field it comes from:
 - `research_report.md` (the 13-section report)

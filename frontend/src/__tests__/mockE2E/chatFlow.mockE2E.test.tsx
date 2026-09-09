@@ -44,6 +44,7 @@ interface Fixture {
     tool_card_status?: string;
     tool_card_tier_badge?: string;
     agent_text_contains?: string[];
+    agent_text_not_contains?: string[];
     do_not_claim_marker_leak?: boolean;
     tool_message_to_model_leak?: boolean;
   };
@@ -140,6 +141,19 @@ describe("mockE2E chatFlow", () => {
       for (const token of INTERNAL_MARKER_TOKENS) {
         expect(cardText).not.toContain(token);
       }
+      // The fixture's own expectations must agree with the recorded result:
+      // a fixture cannot promise a publication badge on an exploratory chain
+      // (the in-process compressed path never reaches publication).
+      if (exp.tool_card_tier_badge) {
+        expect(result.chain_tier).toBe(exp.tool_card_tier_badge);
+      }
+      if (exp.tool_card_status) {
+        expect(String(result.__tool_status__ ?? result.analysis_status)).toBe(exp.tool_card_status);
+      }
+      if (exp.tool_card_tier_badge && exp.tool_card_tier_badge !== "publication") {
+        expect(result.publication_ready).toBe(false);
+        expect(cardText).not.toContain("publication-ready numerical result");
+      }
     }
 
     // ── Agent message: the cited values the fixture expects must appear
@@ -152,6 +166,11 @@ describe("mockE2E chatFlow", () => {
       .join("\n");
     for (const needle of exp.agent_text_contains || []) {
       expect(combined, `rendered agent text expected to contain '${needle}'`).toContain(needle);
+    }
+    // Exploratory posterior numbers must stay inside the tool card: the
+    // reply prose may not quote them (the __exploratory_warning__ contract).
+    for (const needle of exp.agent_text_not_contains || []) {
+      expect(combined, `rendered agent text must not contain '${needle}'`).not.toContain(needle);
     }
   });
 });

@@ -2827,18 +2827,28 @@ def _combo_has_declared_overlap(keys: list[str]) -> bool:
     return False
 
 
-def _conflict_free_union(keys: list[str]) -> tuple[list[str], list[str]]:
-    """Greedy, order-preserving partition of ``keys`` into a subset with no
-    declared ``do_not_combine_with`` pair (first mention wins) and the keys
-    dropped to achieve it."""
-    kept: list[str] = []
-    dropped: list[str] = []
-    for key in keys:
-        if _combo_has_declared_overlap(kept + [key]):
-            dropped.append(key)
+def _conflict_free_partitions(keys: list[str]) -> list[list[str]]:
+    """Split ``keys`` into legs that hold no declared ``do_not_combine_with``
+    pair.  Keys that conflict with nothing are shared by every leg; each
+    overlap class contributes one member per leg (greedy, order-preserving),
+    so every requested dataset survives in some leg.  A conflict-free input
+    is returned as a single leg."""
+    contested = [
+        key for key in keys
+        if any(_combo_has_declared_overlap([key, other]) for other in keys if other != key)
+    ]
+    if not contested:
+        return [list(keys)]
+    shared = [key for key in keys if key not in contested]
+    legs: list[list[str]] = []
+    for key in contested:
+        for leg in legs:
+            if not _combo_has_declared_overlap(leg + [key]):
+                leg.append(key)
+                break
         else:
-            kept.append(key)
-    return kept, dropped
+            legs.append([key])
+    return [[key for key in keys if key in shared or key in leg] for leg in legs]
 
 
 def _proposed_experiment_matrix(dataset_keys: list[str], models: list[str], text: str) -> list[dict[str, Any]]:
@@ -2932,45 +2942,55 @@ def _proposed_experiment_matrix(dataset_keys: list[str], models: list[str], text
         # cell — skipping the upgrade there left the canonical baseline at
         # the mercy of the importance-ESS seed lottery (live: ESS 66 →
         # blocked → every comparison invalidated).
-        # Branch cells run on the dataset union — minus any key that declares
-        # overlap with an earlier one (Codex review on #81): a union holding a
-        # declared pair would be blocked unconditionally, defeating every
-        # comparison. The dropped keys are recorded on the cells.
-        branch_keys, dropped_keys = _conflict_free_union(matrix_keys)
-        union_marker = tuple(sorted(branch_keys))
-        anchored_cell: dict[str, Any] | None = None
-        for cell in matrix:
-            if tuple(sorted(cell.get("dataset_keys") or [])) == union_marker:
-                cell["comparison_anchor"] = True
-                anchored_cell = cell
-                break
+        # Branch cells run on the dataset union, partitioned into conflict-free
+        # legs (Codex review on #81, rounds 3-4): a union holding a declared
+        # do_not_combine_with pair would be blocked unconditionally, and simply
+        # dropping the later key (e.g. eBOSS fsigma8 from a growth question)
+        # would leave the question unanswerable. Every leg gets its own matched
+        # LCDM anchor + requested-model cells; the keys a leg leaves out are
+        # recorded under known_overlap (a registry-identifier key the claim
+        # validator's numeric harvest skips).
+        legs = _conflict_free_partitions(matrix_keys)
         branch_cells: list[dict[str, Any]] = []
-        if anchored_cell is not None:
-            # Move the anchored stock combo to the front with the branch
-            # cells — the chart payloads truncate from the tail, and hiding
-            # exactly the comparison baseline defeats the anchor's purpose.
-            matrix.remove(anchored_cell)
-            branch_cells.append(anchored_cell)
-        else:
-            branch_cells.append({
-                "label": "ΛCDM baseline — all selected probes (comparison anchor)",
-                "dataset_keys": branch_keys,
-                "model": baseline_model,
-                "baseline_only": True,
-                "comparison_anchor": True,
-            })
-        for model in extended_models:
-            branch_cells.append({
-                "label": f"Requested {model} branch",
-                "dataset_keys": branch_keys,
-                "model": model,
-                "requested_model_branch": True,
-            })
-        if dropped_keys:
-            for cell in branch_cells:
-                # Registry-identifier key (skipped by the claim validator's
-                # numeric harvest) naming what was left out and why.
-                cell["known_overlap"] = list(dropped_keys)
+        for leg in legs:
+            excluded = [key for key in matrix_keys if key not in leg]
+            suffix = f" — {' + '.join(leg)}" if len(legs) > 1 else ""
+            leg_marker = tuple(sorted(leg))
+            anchored_cell: dict[str, Any] | None = None
+            for cell in matrix:
+                if tuple(sorted(cell.get("dataset_keys") or [])) == leg_marker:
+                    cell["comparison_anchor"] = True
+                    anchored_cell = cell
+                    break
+            if anchored_cell is not None:
+                # Move the anchored stock combo to the front with the branch
+                # cells — the chart payloads truncate from the tail, and hiding
+                # exactly the comparison baseline defeats the anchor's purpose.
+                matrix.remove(anchored_cell)
+                if excluded:
+                    anchored_cell["known_overlap"] = excluded
+                branch_cells.append(anchored_cell)
+            else:
+                anchor = {
+                    "label": f"ΛCDM baseline — all selected probes (comparison anchor){suffix}",
+                    "dataset_keys": list(leg),
+                    "model": baseline_model,
+                    "baseline_only": True,
+                    "comparison_anchor": True,
+                }
+                if excluded:
+                    anchor["known_overlap"] = excluded
+                branch_cells.append(anchor)
+            for model in extended_models:
+                branch = {
+                    "label": f"Requested {model} branch{suffix}",
+                    "dataset_keys": list(leg),
+                    "model": model,
+                    "requested_model_branch": True,
+                }
+                if excluded:
+                    branch["known_overlap"] = excluded
+                branch_cells.append(branch)
         # Branch cells go FIRST: they answer the question being asked, and the
         # frontend chart payloads truncate long matrices from the tail.
         matrix = branch_cells + matrix

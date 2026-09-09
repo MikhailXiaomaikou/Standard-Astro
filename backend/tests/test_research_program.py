@@ -2657,17 +2657,23 @@ def test_proposed_matrix_never_pairs_datasets_that_declare_overlap() -> None:
                 assert left not in get_cosmology_dataset(right).do_not_combine_with, (cell["label"], left, right)
 
 
-def test_extended_model_branch_cells_drop_declared_overlaps_too() -> None:
-    """Codex review on #81: the comparison anchor and requested-model branch
-    cells run on the dataset union; a union holding a declared overlap pair
-    would be blocked unconditionally, so the union is partitioned first and
-    the dropped keys are recorded on the cells."""
+def test_extended_model_branch_cells_partition_declared_overlaps() -> None:
+    """Codex review on #81 (rounds 3-4): the comparison anchor and
+    requested-model branch cells run on the dataset union; a union holding a
+    declared overlap pair would be blocked unconditionally, and dropping the
+    later key would leave the growth question unanswerable. The union is
+    partitioned into conflict-free legs, each with a matched LCDM anchor and
+    extended-model cell; the excluded keys are recorded on the cells."""
     from app.services.cosmology_likelihoods import get_cosmology_dataset
-    from app.services.research_program import _conflict_free_union, _proposed_experiment_matrix
+    from app.services.research_program import _conflict_free_partitions, _proposed_experiment_matrix
 
-    kept, dropped = _conflict_free_union(["desi_dr1_bao", "eboss_dr16_rsd", "planck2018_compressed"])
-    assert kept == ["desi_dr1_bao", "planck2018_compressed"]
-    assert dropped == ["eboss_dr16_rsd"]
+    assert _conflict_free_partitions(["desi_dr1_bao", "eboss_dr16_rsd", "planck2018_compressed"]) == [
+        ["desi_dr1_bao", "planck2018_compressed"],
+        ["eboss_dr16_rsd", "planck2018_compressed"],
+    ]
+    assert _conflict_free_partitions(["desi_dr1_bao", "planck2018_compressed"]) == [
+        ["desi_dr1_bao", "planck2018_compressed"],
+    ]
 
     matrix = _proposed_experiment_matrix(
         ["desi_dr1_bao", "eboss_dr16_rsd", "planck2018_compressed"],
@@ -2676,13 +2682,19 @@ def test_extended_model_branch_cells_drop_declared_overlaps_too() -> None:
     )
     anchors = [cell for cell in matrix if cell.get("comparison_anchor")]
     branches = [cell for cell in matrix if cell.get("requested_model_branch")]
-    assert len(anchors) == 1 and len(branches) == 1
+    assert len(anchors) == 2 and len(branches) == 2
+    leg_sets = {tuple(cell["dataset_keys"]) for cell in anchors}
+    assert leg_sets == {("desi_dr1_bao", "planck2018_compressed"), ("eboss_dr16_rsd", "planck2018_compressed")}
+    assert {tuple(cell["dataset_keys"]) for cell in branches} == leg_sets
     for cell in anchors + branches:
-        assert cell["dataset_keys"] == ["desi_dr1_bao", "planck2018_compressed"], cell
-        assert cell["known_overlap"] == ["eboss_dr16_rsd"]
+        expected_excluded = ["eboss_dr16_rsd"] if "desi_dr1_bao" in cell["dataset_keys"] else ["desi_dr1_bao"]
+        assert cell["known_overlap"] == expected_excluded, cell
+        assert cell["model"] in {"lcdm", "wcdm"}
+    # Each leg has a matched lcdm anchor for its wcdm branch (same keys).
+    for branch in branches:
+        assert any(anchor["dataset_keys"] == branch["dataset_keys"] for anchor in anchors)
     for cell in matrix:
         keys = list(cell["dataset_keys"])
         for i, left in enumerate(keys):
             for right in keys[i + 1:]:
                 assert right not in get_cosmology_dataset(left).do_not_combine_with, (cell["label"], left, right)
-

@@ -3242,22 +3242,36 @@ def _cosmology_dataset_groups_from_prompt(
 
 
 def _explicit_joint_request(text: str) -> bool:
-    """True when the prompt asks for the datasets to be run TOGETHER
-    (a joint cue, or a non-negated "combine"/"jointly"/"together").  Such a
-    request must reach the runner as one call so it can reject and explain
-    an invalid overlap (Codex review on #81) instead of being silently
-    rewritten into separate legs."""
+    """True only when the prompt asks for the two overlapping BAO releases to
+    be run TOGETHER: a clause that names both DESI and pre-DESI and carries a
+    non-negated joint word (combine/jointly/together/joint fit) without an
+    alternative cue (alternatives/separately/each/either/instead).  A joint
+    word elsewhere in the prompt ("each combined with Planck CMB") does not
+    override the alternative reading (Codex review on #81, rounds 2 and 4).
+    Such a request must reach the runner as one call so it can reject and
+    explain the invalid overlap instead of being rewritten into legs."""
     prompt = str(text or "").lower()
-    if _last_dataset_group_mode(prompt) == "joint":
-        return True
-    for match in re.finditer(r"\b(?:combine|combining|combined|jointly|together)\b", prompt):
-        prefix = prompt[max(0, match.start() - 40): match.start()]
-        if not re.search(
-            r"\b(?:do\s+not|don't|never|must\s+not|should\s+not|shouldn't|"
-            r"cannot|can't|without|instead\s+of)(?:\s+ever)?\s*$",
-            prefix,
+    for clause in re.split(r"[.;,\n]", prompt):
+        if not re.search(r"\bpre[- ]desi\b", clause):
+            continue
+        if not re.search(r"(?<!pre-)(?<!pre )\bdesi\b", clause):
+            continue
+        if re.search(
+            r"\b(?:alternatives?|alternatively|separately|independently|each|either|instead|versus|vs\.?)\b",
+            clause,
         ):
-            return True
+            continue
+        for match in re.finditer(
+            r"\b(?:combine|combining|combined|jointly|together|joint\s+(?:fit|run|analysis))\b",
+            clause,
+        ):
+            prefix = clause[max(0, match.start() - 40): match.start()]
+            if not re.search(
+                r"\b(?:do\s+not|don't|never|must\s+not|should\s+not|shouldn't|"
+                r"cannot|can't|without|instead\s+of)(?:\s+ever)?\s*$",
+                prefix,
+            ):
+                return True
     return False
 
 

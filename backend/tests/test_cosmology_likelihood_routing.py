@@ -3309,4 +3309,16 @@ def test_explicit_joint_desi_and_pre_desi_request_stays_one_call_for_the_runner_
     # Negated combining is not a joint request.
     assert _explicit_joint_request("Use DESI or pre-DESI BAO; do not combine them.") is False
     assert _explicit_joint_request("Run DESI and pre-DESI BAO without combining the datasets.") is False
+    # A joint word that joins something ELSE (each leg with Planck) does not
+    # turn the alternative reading of the two releases into a joint request:
+    # both BAO+CMB legs are produced (Codex review on #81, round 4).
+    alt_prompt = (
+        "Compare DESI and pre-DESI BAO as alternatives, each combined with Planck CMB, "
+        "under flat LCDM."
+    )
+    assert _explicit_joint_request(alt_prompt) is False
+    alt_legs = [call["input"]["dataset_keys"] for call in _cosmology_likelihood_run_calls_from_prompt(alt_prompt)]
+    assert ["desi_dr1_bao", "planck2018_compressed"] in alt_legs, alt_legs
+    assert ["sdss_6df_bao", "planck2018_compressed"] in alt_legs, alt_legs
+    assert not any("desi_dr1_bao" in leg and "sdss_6df_bao" in leg for leg in alt_legs), alt_legs
 

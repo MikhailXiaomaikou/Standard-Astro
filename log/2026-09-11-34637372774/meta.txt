@@ -1,0 +1,4 @@
+run_id: 34637372774
+commit: f1479346a1baf7a10ed7b69e68c95b8c7980681e
+published_at: 2026-09-11T19:28:44Z
+artifact: blind-tests-34637372774 (90-day retention)

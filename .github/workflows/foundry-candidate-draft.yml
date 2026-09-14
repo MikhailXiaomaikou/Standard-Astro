@@ -132,7 +132,7 @@ jobs:
           fetch-depth: 1
 
       - name: Download inert Draft artifacts
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: foundry-draft-${{ inputs.draft_run_id }}
           path: foundry-draft-output
@@ -315,7 +315,7 @@ jobs:
         run: test "$GITHUB_REF" = "refs/heads/main"
 
       - name: Download only the frozen callback document
-        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: foundry-draft-callback-${{ inputs.draft_run_id }}
           path: callback

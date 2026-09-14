@@ -48,7 +48,7 @@ jobs:
       # Control code comes from the pinned validation workflow ref. Candidate
       # code is downloaded and handled separately; it cannot replace these host
       # verification scripts.
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: control-source
           persist-credentials: false
@@ -91,7 +91,7 @@ jobs:
 
       - name: Check out the exact Draft base commit without credentials
         if: ${{ steps.binding.outputs.ai_draft == 'true' }}
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.binding.outputs.base_commit }}
           path: candidate-source

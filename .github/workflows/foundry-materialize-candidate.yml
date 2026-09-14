@@ -39,7 +39,7 @@ jobs:
         shell: bash
         run: test "$GITHUB_REF" = "refs/heads/main"
 
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: control-source
           persist-credentials: false
@@ -60,7 +60,7 @@ jobs:
             --github-output "$GITHUB_OUTPUT"
 
       - name: Check out exact immutable Draft base
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.binding.outputs.base_commit }}
           path: candidate-source
@@ -224,7 +224,7 @@ jobs:
         shell: bash
         run: test "$GITHUB_REF" = "refs/heads/main"
 
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8

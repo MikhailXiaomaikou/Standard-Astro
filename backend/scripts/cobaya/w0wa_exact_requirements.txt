@@ -49,6 +49,6 @@ sympy==1.14.0
 tqdm==4.67.3
 typing_extensions==4.15.0
 tzdata==2025.3
-urllib3==2.7.0
+urllib3==2.8.0
 xarray==2026.4.0
 xarray-einstats==0.10.0
